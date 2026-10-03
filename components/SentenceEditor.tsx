@@ -47,7 +47,7 @@ export function SentenceEditor({ assignmentId, initial }: { assignmentId: number
     const form = new FormData();
     form.set("sentenceId", String(sentenceId));
     const type = blob.type || "audio/webm";
-    const ext = type.includes("mp4") ? "mp4" : "webm";
+    const ext = type.includes("wav") ? "wav" : type.includes("mp4") ? "mp4" : "webm";
     form.set("file", new File([blob], `reference.${ext}`, { type }));
     const response = await fetch(`/api/assignments/${assignmentId}/reference`, { method: "POST", body: form });
     const payload = (await response.json()) as { error?: string };

@@ -31,7 +31,12 @@ export function evaluateWav(refText: string, wav: Buffer): Promise<SoeCall> {
         /* already closed */
       }
       const scores = parseEvaluation(raw);
-      resolve({ scores, raw: scores.ok ? raw : { error: scores.error ?? "评测失败", result: raw } });
+      const preset =
+        raw && typeof raw === "object" && typeof (raw as { error?: unknown }).error === "string"
+          ? (raw as { error: string }).error
+          : null;
+      if (!scores.ok && preset) scores.error = preset;
+      resolve({ scores, raw: scores.ok ? raw : { error: scores.error ?? preset ?? "评测失败", result: raw } });
     };
     const timer = setTimeout(() => finish({ error: "评测超时", result: latest }), 25000);
     ws.on("error", () => finish({ error: "评测连接失败", result: latest }));

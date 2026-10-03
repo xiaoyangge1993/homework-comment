@@ -15,7 +15,7 @@
 ## 环境
 
 - Node.js 20 或更新版本
-- ffmpeg，用来把浏览器录音转成 16 kHz 单声道 wav。macOS 可以用 `brew install ffmpeg`
+- ffmpeg，用来把浏览器录音转成 16 kHz 单声道 wav。macOS 13 及更新版本可以用 `brew install ffmpeg`。macOS 12 没有现成的 Homebrew 安装包，可以把可执行文件放到 `bin/ffmpeg`，或在 `.env.local` 里设置 `FFMPEG_PATH`。服务也会查找 `/opt/homebrew/bin` 和 `/usr/local/bin`。
 
 ## 配置
 
@@ -35,6 +35,11 @@ cp .env.example .env.local
 | `TENCENT_TTS_VOICE_TYPE` | 可选。默认 `101001`（智瑜，中文女声）。账号没开精品音色时可以改成 `1001`。 |
 
 语音合成是否可用，只看 `TENCENT_SECRET_ID` 和 `TENCENT_SECRET_KEY`。语速固定为约 0.8 倍。
+
+密钥填好之后如果页面仍评不了：
+
+- 智聆返回「请求未授权」或「签名错误」。签名错误说明 SecretKey 和 AppId 不配对。请求未授权说明签名已经通过，但这把密钥是子账号，主账号要在 [访问管理](https://console.cloud.tencent.com/cam) 里给它授予「智聆口语评测（新版）」权限。控制台开通服务不会自动授权子账号。
+- 语音合成返回「语音合成资源包已用完」。需要在 [语音合成资源包](https://console.cloud.tencent.com/tts) 购买资源包，或开通后付费。文字点评仍会保存。
 
 ## 启动
 

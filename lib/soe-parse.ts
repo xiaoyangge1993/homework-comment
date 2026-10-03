@@ -72,28 +72,31 @@ function readWords(result: Record<string, unknown>): ParsedWord[] {
     const text = String(word.Word ?? word.word ?? word.ReferenceWord ?? "").replace(/_\d+$/, "");
     if (!text) return [];
     const tag = asNumber(word.MatchTag ?? word.Tag);
-    const phones = Array.isArray(word.PhoneInfos)
-      ? word.PhoneInfos.flatMap((phone) => {
-          if (!phone || typeof phone !== "object") return [];
-          const row = phone as Record<string, unknown>;
-          const symbol = String(row.Phone ?? row.phone ?? "");
-          if (!symbol) return [];
-          return [{ phone: symbol, accuracy: accuracyPercent(row.PronAccuracy) }];
-        })
-      : [];
+    const phoneSource = Array.isArray(word.PhoneInfos) ? word.PhoneInfos : Array.isArray(word.PhoneInfo) ? word.PhoneInfo : [];
+    const phones = phoneSource.flatMap((phone) => {
+      if (!phone || typeof phone !== "object") return [];
+      const row = phone as Record<string, unknown>;
+      const symbol = String(row.Phone ?? row.phone ?? "");
+      if (!symbol) return [];
+      return [{ phone: symbol, accuracy: accuracyPercent(row.PronAccuracy) }];
+    });
     return [{ word: text, matchTag: tag ?? 0, accuracy: accuracyPercent(word.PronAccuracy), phones }];
   });
 }
 
 export function parseEvaluation(payload: unknown): ParsedScores {
+  const preset =
+    payload && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string"
+      ? (payload as { error: string }).error
+      : null;
   const result = findResult(payload);
-  if (!result) return { ok: false, error: "评测结果无效", accuracy: null, fluency: null, completion: null, words: [] };
+  if (!result) return { ok: false, error: preset ?? "评测结果无效", accuracy: null, fluency: null, completion: null, words: [] };
   const words = readWords(result);
   const accuracy = accuracyPercent(result.PronAccuracy);
   const fluency = ratioPercent(result.PronFluency);
   const completion = ratioPercent(result.PronCompletion);
   if (accuracy == null) {
-    return { ok: false, error: "评测结果无效", accuracy: null, fluency: null, completion: null, words };
+    return { ok: false, error: preset ?? "评测结果无效", accuracy: null, fluency: null, completion: null, words };
   }
   return { ok: true, accuracy, fluency, completion, words };
 }

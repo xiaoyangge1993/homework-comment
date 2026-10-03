@@ -7,6 +7,7 @@ import { getDb } from "./db";
 import { buildDraft, type DraftSentence } from "./draft";
 import { AppError } from "./errors";
 import { commandWorks, detectInternalPause, durationSeconds, transcodeWav } from "./media";
+import { decodePcmWav, encodePcm16Wav } from "./wav";
 import { classifyRhythm } from "./rhythm";
 import { wordsOf } from "./soe-parse";
 import { EVALUATION_NOT_CONFIGURED, evaluateWav, soeConfigured } from "./soe";
@@ -42,22 +43,33 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
     raw = { error: EVALUATION_NOT_CONFIGURED };
   } else if (!studentFile) {
     raw = { error: "找不到录音" };
-  } else if (!(await commandWorks("ffmpeg"))) {
-    raw = { error: "需要安装 ffmpeg 才能评测" };
   } else {
-    const wavPath = path.join(audioRoot(), "wav", `${attemptId}.wav`);
-    fs.mkdirSync(path.dirname(wavPath), { recursive: true });
-    try {
-      await transcodeWav(studentFile, wavPath);
-      const evaluated = await evaluateWav(row.text_en, fs.readFileSync(wavPath));
+    const direct = pcm16kWav(studentFile);
+    if (direct) {
+      const evaluated = await evaluateWav(row.text_en, direct);
       raw = evaluated.raw;
       if (evaluated.scores.ok) {
         accuracy = evaluated.scores.accuracy;
         fluency = evaluated.scores.fluency;
         completion = evaluated.scores.completion;
       }
-    } catch {
-      raw = { error: "音频转换失败" };
+    } else if (!(await commandWorks("ffmpeg"))) {
+      raw = { error: "需要安装 ffmpeg 才能评测" };
+    } else {
+      const wavPath = path.join(audioRoot(), "wav", `${attemptId}.wav`);
+      fs.mkdirSync(path.dirname(wavPath), { recursive: true });
+      try {
+        await transcodeWav(studentFile, wavPath);
+        const evaluated = await evaluateWav(row.text_en, fs.readFileSync(wavPath));
+        raw = evaluated.raw;
+        if (evaluated.scores.ok) {
+          accuracy = evaluated.scores.accuracy;
+          fluency = evaluated.scores.fluency;
+          completion = evaluated.scores.completion;
+        }
+      } catch {
+        raw = { error: "音频转换失败" };
+      }
     }
   }
 
@@ -65,6 +77,18 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
     "UPDATE sentence_attempt SET accuracy = ?, fluency = ?, completion = ?, rhythm = ?, raw_json = ? WHERE id = ?",
   ).run(accuracy, fluency, completion, rhythm, JSON.stringify(raw), attemptId);
   syncDraft(row.submission_id);
+}
+
+function pcm16kWav(file: string): Buffer | null {
+  try {
+    const bytes = fs.readFileSync(file);
+    const decoded = decodePcmWav(bytes);
+    if (!decoded || decoded.sampleRate !== 16000) return null;
+    if (decoded.channels === 1) return bytes;
+    return Buffer.from(encodePcm16Wav(decoded.samples, 16000));
+  } catch {
+    return null;
+  }
 }
 
 async function measureRhythm(studentPath: string, referencePath: string | null): Promise<RhythmLabel | null> {

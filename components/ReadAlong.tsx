@@ -21,7 +21,7 @@ export function ReadAlong({
     form.set("assignmentId", String(view.id));
     form.set("sentenceId", String(sentenceId));
     const type = blob.type || "audio/webm";
-    const ext = type.includes("mp4") ? "mp4" : "webm";
+    const ext = type.includes("wav") ? "wav" : type.includes("mp4") ? "mp4" : "webm";
     form.set("file", new File([blob], `read.${ext}`, { type }));
     const response = await fetch("/api/attempts", { method: "POST", body: form });
     const body = (await response.json()) as { error?: string };

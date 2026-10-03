@@ -1,6 +1,8 @@
 node_modules
 .next
 data
+bin/ffmpeg
+bin/ffprobe
 .env
 .env.local
 *.log

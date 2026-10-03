@@ -42,10 +42,19 @@ export async function synthesizeSpeech(text: string): Promise<Buffer> {
     },
     body: payload,
   });
-  const body = (await response.json()) as { Response?: { Audio?: string; Error?: { Message?: string } } };
+  const body = (await response.json()) as {
+    Response?: { Audio?: string; Error?: { Code?: string; Message?: string } };
+  };
   const audio = body.Response?.Audio;
-  if (!audio) throw new Error(body.Response?.Error?.Message || "语音合成失败");
+  if (!audio) throw new Error(ttsErrorMessage(body.Response?.Error));
   return Buffer.from(audio, "base64");
+}
+
+function ttsErrorMessage(error: { Code?: string; Message?: string } | undefined): string {
+  const code = error?.Code ?? "";
+  if (code === "UnsupportedOperation.PkgExhausted") return "语音合成资源包已用完";
+  if (code.startsWith("AuthFailure")) return "语音合成未授权，请让主账号给这个密钥开通语音合成";
+  return error?.Message || "语音合成失败";
 }
 
 export async function attachSpeech(submissionId: number, text: string): Promise<string | null> {

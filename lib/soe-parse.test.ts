@@ -38,6 +38,28 @@ describe("parseEvaluation", () => {
     assert.equal(parsed.words[2]?.phones[0]?.phone, "k");
   });
 
+  it("keeps an interface error instead of inventing a score", () => {
+    const parsed = parseEvaluation({
+      error: "请求未授权。请联系主账号授权。",
+      result: { code: 4002, message: "请求未授权。请联系主账号授权。" },
+    });
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.accuracy, null);
+    assert.equal(parsed.error, "请求未授权。请联系主账号授权。");
+  });
+
+  it("reads PhoneInfo when PhoneInfos is absent", () => {
+    const parsed = parseEvaluation({
+      result: {
+        PronAccuracy: 80,
+        PronFluency: 0.8,
+        PronCompletion: 1,
+        Words: [{ Word: "cute", MatchTag: 3, PhoneInfo: [{ Phone: "k", PronAccuracy: 20 }] }],
+      },
+    });
+    assert.equal(parsed.words[0]?.phones[0]?.phone, "k");
+  });
+
   it("treats negative scores as unusable", () => {
     const parsed = parseEvaluation({ result: { PronAccuracy: -1, PronFluency: -1, PronCompletion: -1, Words: [] } });
     assert.equal(parsed.ok, false);
