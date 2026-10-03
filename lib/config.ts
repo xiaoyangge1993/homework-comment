@@ -1,0 +1,14 @@
+export const limits = {
+  maxWordsPerSentence: 30,
+  maxRecordSeconds: 60,
+  accuracyListenBelow: 80,
+  completionListenBelow: 90,
+  accuracyPassAt: 80,
+  rhythmFastBelow: 0.85,
+  rhythmSlowAbove: 1.4,
+  pauseSeconds: 0.8,
+  soeScoreCoeff: 1.5,
+  draftMaxChars: 80,
+  ttsSpeed: -1,
+  maxAudioBytes: 8 * 1024 * 1024,
+};
