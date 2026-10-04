@@ -84,7 +84,7 @@ function ReferenceHint({ detail }: { detail: ReturnType<typeof getAssignment> })
 function ClassBoard({ assignmentId }: { assignmentId: number }) {
   const board = loadBoard(assignmentId);
   return (
-    <>
+    <div className="grade-surface">
       <div className="stats">
         <div className="stat">
           <span className="muted">已交</span>
@@ -101,40 +101,58 @@ function ClassBoard({ assignmentId }: { assignmentId: number }) {
       </div>
       {board.rows.length === 0 ? <p className="muted">还没有学生提交。</p> : null}
       {board.rows.length > 0 ? (
-        <table>
+        <table className="board">
           <thead>
             <tr>
               <th>学生</th>
-              <th>准确度</th>
-              <th>完整度</th>
-              <th>流利度</th>
+              <th className="num">准确度</th>
+              <th className="num">完整度</th>
+              <th className="num">流利度</th>
               <th>节奏</th>
               <th>建议</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {board.rows.map((row) => (
-              <tr key={row.submissionId}>
+            {board.rows.map((row, index) => (
+              <tr
+                key={row.submissionId}
+                data-group={row.group}
+                className={
+                  [
+                    row.group === "listen" ? "is-listen" : "",
+                    row.group === "pass" ? "is-pass" : "",
+                    index > 0 && board.rows[index - 1].group !== row.group ? "group-start" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
+              >
                 <td data-label="学生">
                   <a href={`/teacher/assignments/${assignmentId}?submission=${row.submissionId}`}>{row.name}</a>
                 </td>
-                <td data-label="准确度">{row.accuracyText}</td>
-                <td data-label="完整度">{row.completionText}</td>
-                <td data-label="流利度">{row.fluencyText}</td>
+                <td className="num" data-label="准确度">
+                  {row.accuracyText}
+                </td>
+                <td className="num" data-label="完整度">
+                  {row.completionText}
+                </td>
+                <td className="num" data-label="流利度">
+                  {row.fluencyText}
+                </td>
                 <td data-label="节奏">{row.rhythmText}</td>
                 <td data-label="建议">
                   <span className={row.group === "listen" ? "pill listen" : row.group === "pass" ? "pill pass" : "pill"}>
                     {row.advice}
                   </span>
                 </td>
-                <td>{row.group === "pass" ? <PassButton submissionId={row.submissionId} /> : null}</td>
+                <td className="board-action">{row.group === "pass" ? <PassButton submissionId={row.submissionId} /> : null}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -148,11 +166,11 @@ function TeacherReview({ assignmentId, submissionId }: { assignmentId: number; s
     throw error;
   }
   return (
-    <>
+    <div className="grade-surface">
       <p>
         <a href={`/teacher/assignments/${assignmentId}`}>返回看板</a>
       </p>
-      <h2>{review.studentName}</h2>
+      <h2 className="review-name">{review.studentName}</h2>
       {review.decision === "accepted" ? <p className="ok">已通过。学生能看到最终点评。</p> : null}
       {review.decision === "returned" ? <p className="warn">已打回。学生只能重录被选中的句子。</p> : null}
       {review.ttsUrl ? <audio controls preload="none" src={review.ttsUrl} /> : null}
@@ -162,6 +180,6 @@ function TeacherReview({ assignmentId, submissionId }: { assignmentId: number; s
         sentences={review.sentences}
         speechReady={ttsConfigured()}
       />
-    </>
+    </div>
   );
 }

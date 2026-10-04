@@ -60,42 +60,44 @@ export function ReviewPanel({
           }
         />
       ))}
-      <label>
-        点评
-        <textarea value={text} onChange={(event) => setText(event.target.value)} />
-      </label>
-      <div className="row">
-        <button
-          type="button"
-          className="btn primary"
-          disabled={pending}
-          onClick={() => void send(`/api/submissions/${submissionId}/accept`, { mode: "draft" })}
-        >
-          通过并发送
-        </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={pending || !text.trim()}
-          onClick={() => void send(`/api/submissions/${submissionId}/accept`, { mode: "edited", text })}
-        >
-          修改后发送
-        </button>
-        <button
-          type="button"
-          className="btn danger"
-          disabled={pending || picked.length === 0}
-          onClick={() => void send(`/api/submissions/${submissionId}/return`, { sentenceIds: picked, text })}
-        >
-          打回选中的句子
-        </button>
-        {speechReady ? null : (
-          <button type="button" className="btn" disabled>
-            语音合成未配置
+      <section className="review-dock">
+        <label>
+          点评
+          <textarea value={text} onChange={(event) => setText(event.target.value)} />
+        </label>
+        <div className="row">
+          <button
+            type="button"
+            className="btn primary"
+            disabled={pending}
+            onClick={() => void send(`/api/submissions/${submissionId}/accept`, { mode: "draft" })}
+          >
+            通过并发送
           </button>
-        )}
-      </div>
-      {error ? <p className="error">{error}</p> : null}
+          <button
+            type="button"
+            className="btn"
+            disabled={pending || !text.trim()}
+            onClick={() => void send(`/api/submissions/${submissionId}/accept`, { mode: "edited", text })}
+          >
+            修改后发送
+          </button>
+          <button
+            type="button"
+            className="btn danger"
+            disabled={pending || picked.length === 0}
+            onClick={() => void send(`/api/submissions/${submissionId}/return`, { sentenceIds: picked, text })}
+          >
+            打回选中的句子
+          </button>
+          {speechReady ? null : (
+            <button type="button" className="btn" disabled>
+              语音合成未配置
+            </button>
+          )}
+        </div>
+        {error ? <p className="error">{error}</p> : null}
+      </section>
     </div>
   );
 }
@@ -120,7 +122,7 @@ function ReviewSentenceCard({
   }
 
   return (
-    <article className={sentence.needsListen ? "card too-long" : "card"}>
+    <article className={sentence.needsListen ? "card listen-card" : "card"}>
       <div className="sentence-head">
         <h2>第 {sentence.index} 句</h2>
         {sentence.needsListen ? <span className="pill listen">建议亲听</span> : <span className="pill pass">可过</span>}
@@ -158,7 +160,7 @@ function ReviewSentenceCard({
 
 function ScoreLine({ attempt }: { attempt: NonNullable<ReviewSentence["attempt"]> }) {
   return (
-    <p>
+    <p className="score-line">
       准确度 {show(attempt.accuracy)} · 流利度 {show(attempt.fluency)} · 完整度 {show(attempt.completion)}
       {attempt.rhythm ? ` · 节奏 ${attempt.rhythm}` : " · 节奏 —"}
     </p>
