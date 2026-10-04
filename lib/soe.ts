@@ -1,5 +1,6 @@
 import "server-only";
 
+import "./ws-env";
 import WebSocket from "ws";
 import { parseEvaluation, type ParsedScores } from "./soe-parse";
 import { buildSoeUrl, EVALUATION_NOT_CONFIGURED, soeConfigured } from "./soe-sign";
@@ -58,8 +59,12 @@ export function evaluateWav(refText: string, wav: Buffer): Promise<SoeCall> {
       if (message.result) latest = message;
       if (!opened && message.code === 0 && !message.result && message.final !== 1) {
         opened = true;
-        ws.send(wav);
-        ws.send(JSON.stringify({ type: "end" }));
+        try {
+          ws.send(wav);
+          ws.send(JSON.stringify({ type: "end" }));
+        } catch {
+          finish({ error: "评测发送失败", result: latest });
+        }
       }
       if (message.final === 1) finish(latest ?? message);
     });
