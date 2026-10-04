@@ -57,6 +57,8 @@ npm run build
 npm start
 ```
 
+`npm start` 会读取服务器上的 `.env.local`。部署到 Vercel 时这个文件不在仓库里，也不会上传。请在 Vercel 项目的 Settings → Environment Variables 中设置 `TEACHER_PASSWORD` 和 `SESSION_SECRET`（评测和语音合成还需要腾讯云那几项），环境勾选 Production，然后重新部署。只改本地 `.env.local` 不会让线上登录成功。Vercel 的函数目录是只读的，数据库和录音会写到该实例的 `/tmp`，实例回收后这些数据不会保留。
+
 音频在 `data/audio/`，原视频在 `data/video/`，数据库在 `data/app.db`。数据库只存相对路径。这些目录不要提交。
 
 布置视频接受 mp4、webm、mov，最长 5 分钟，最大 200MB。学生每一句的视频同样是这三种格式，最长 60 秒，最大 80MB。学生也可以只录音。服务端只抽出音轨做评测，不分析画面和口型。布置视频抽出的音轨只作整篇参照，不参与逐句打分。没有逐句标准音时，看板写「只有整段视频参照」。

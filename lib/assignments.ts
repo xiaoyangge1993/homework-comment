@@ -7,6 +7,7 @@ import { audioRoot } from "./audio";
 import { limits } from "./config";
 import { getDb } from "./db";
 import { AppError } from "./errors";
+import { missingEnvMessage, readEnv } from "./env";
 import { countWords, mergeText, pairSentences, splitChineseOnce, splitOnce, tooLong } from "./sentences";
 import type { AssignmentStatus, SentenceDTO } from "./types";
 import { acceptVideoUpload, extractWav } from "./video";
@@ -83,7 +84,9 @@ export function listAssignments() {
 
 function classId(): number {
   const row = getDb().prepare("SELECT id FROM class ORDER BY id LIMIT 1").get() as { id: number } | undefined;
-  if (!row) throw new AppError("请先在 .env.local 设置 TEACHER_PASSWORD 并重启");
+  if (!row) {
+    throw new AppError(readEnv("TEACHER_PASSWORD") ? "班级数据还没有写好，请重新打开页面" : missingEnvMessage("TEACHER_PASSWORD"));
+  }
   return row.id;
 }
 

@@ -2,6 +2,7 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { getDb } from "./db";
+import { missingEnvMessage, readEnv } from "./env";
 import { verifyPassword } from "./password";
 import { readSession, signSession } from "./session";
 import { AppError } from "./errors";
@@ -21,27 +22,20 @@ export const cookieOptions = {
 type TeacherPayload = { teacherId: number; exp: number };
 type StudentPayload = { studentId: number; classId: number; exp: number };
 
-export function setupMessage(): string | null {
-  if (!process.env.TEACHER_PASSWORD) return "请在 .env.local 设置 TEACHER_PASSWORD";
-  if (!process.env.SESSION_SECRET) return "请在 .env.local 设置 SESSION_SECRET";
-  return null;
-}
-
 export async function loginTeacher(password: string): Promise<string> {
-  const problem = setupMessage();
-  if (problem) throw new AppError(problem);
   const db = getDb();
   const teacher = db.prepare("SELECT id, password_hash FROM teacher LIMIT 1").get() as
     | { id: number; password_hash: string }
     | undefined;
-  if (!teacher || !verifyPassword(password, teacher.password_hash)) {
-    throw new AppError("密码不对");
-  }
+  // The password is copied into the database on first boot. Later logins use that hash.
+  if (!teacher) throw new AppError(missingEnvMessage("TEACHER_PASSWORD"));
+  if (!readEnv("SESSION_SECRET")) throw new AppError(missingEnvMessage("SESSION_SECRET"));
+  if (!verifyPassword(password, teacher.password_hash)) throw new AppError("密码不对");
   return signSession({ teacherId: teacher.id, exp: Date.now() + MAX_AGE_MS } satisfies TeacherPayload);
 }
 
 export async function getTeacherSession(): Promise<{ teacherId: number } | null> {
-  if (!process.env.SESSION_SECRET) return null;
+  if (!readEnv("SESSION_SECRET")) return null;
   const jar = await cookies();
   const payload = readSession<TeacherPayload>(jar.get(TEACHER_COOKIE)?.value);
   if (!payload || payload.exp < Date.now() || !payload.teacherId) return null;
@@ -59,7 +53,7 @@ export function signStudent(studentId: number, classId: number): string {
 }
 
 export async function getStudentSession(): Promise<{ studentId: number; classId: number } | null> {
-  if (!process.env.SESSION_SECRET) return null;
+  if (!readEnv("SESSION_SECRET")) return null;
   const jar = await cookies();
   const payload = readSession<StudentPayload>(jar.get(STUDENT_COOKIE)?.value);
   if (!payload || payload.exp < Date.now() || !payload.studentId) return null;

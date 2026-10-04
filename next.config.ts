@@ -5,6 +5,10 @@ process.env.WS_NO_BUFFER_UTIL ??= "1";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["better-sqlite3", "ws"],
+  // schema.sql is read with fs at runtime. The path is not static, so the tracer would drop it.
+  outputFileTracingIncludes: {
+    "**": ["./lib/schema.sql"],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "200mb",

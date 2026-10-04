@@ -1,8 +1,10 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import { AppError } from "./errors";
+import { missingEnvMessage, readEnv } from "./env";
 
 function secret(): string {
-  const value = process.env.SESSION_SECRET;
-  if (!value) throw new Error("请在 .env.local 设置 SESSION_SECRET");
+  const value = readEnv("SESSION_SECRET");
+  if (!value) throw new AppError(missingEnvMessage("SESSION_SECRET"));
   return value;
 }
 
@@ -13,7 +15,7 @@ export function signSession(payload: object): string {
 }
 
 export function readSession<T>(token: string | undefined): T | null {
-  if (!token || !process.env.SESSION_SECRET) return null;
+  if (!token || !readEnv("SESSION_SECRET")) return null;
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
   const body = token.slice(0, dot);

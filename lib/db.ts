@@ -3,13 +3,28 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
+import { resolveDataDir } from "./data-dir";
+import { AppError } from "./errors";
+import { readEnv } from "./env";
 import { hashPassword } from "./password";
 
-const globalForDb = globalThis as unknown as { homeworkDb?: Database.Database };
+const globalForDb = globalThis as unknown as { homeworkDb?: Database.Database; homeworkDataDir?: string };
 let videoColumnsReady = false;
 
 export function dataDir(): string {
-  return path.join(process.cwd(), "data");
+  if (!globalForDb.homeworkDataDir) {
+    globalForDb.homeworkDataDir = resolveDataDir(process.cwd(), readEnv("DATA_DIR"));
+  }
+  return globalForDb.homeworkDataDir;
+}
+
+function loadSchema(): string {
+  const schemaPath = path.join(process.cwd(), "lib", "schema.sql");
+  try {
+    return fs.readFileSync(schemaPath, "utf8");
+  } catch {
+    throw new AppError("服务器找不到数据库结构文件");
+  }
 }
 
 export function getDb(): Database.Database {
@@ -20,12 +35,11 @@ export function getDb(): Database.Database {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     db.pragma("busy_timeout = 5000");
-    const schema = fs.readFileSync(path.join(process.cwd(), "lib", "schema.sql"), "utf8");
-    db.exec(schema);
-    ensureTeacher(db);
+    db.exec(loadSchema());
     globalForDb.homeworkDb = db;
   }
   ensureVideoColumns(globalForDb.homeworkDb);
+  ensureTeacher(globalForDb.homeworkDb);
   return globalForDb.homeworkDb;
 }
 
@@ -83,7 +97,7 @@ function addColumn(db: Database.Database, table: string, column: string, type: s
 function ensureTeacher(db: Database.Database) {
   const existing = db.prepare("SELECT id FROM teacher LIMIT 1").get();
   if (existing) return;
-  const password = process.env.TEACHER_PASSWORD;
+  const password = readEnv("TEACHER_PASSWORD");
   if (!password) return;
   db.prepare("INSERT INTO teacher (password_hash) VALUES (?)").run(hashPassword(password));
   const classRow = db.prepare("SELECT id FROM class LIMIT 1").get();
