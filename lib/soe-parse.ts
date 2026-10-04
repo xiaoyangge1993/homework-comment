@@ -5,6 +5,8 @@ export type ParsedWord = {
   matchTag: number;
   accuracy: number | null;
   phones: PhoneScore[];
+  beginMs: number | null;
+  endMs: number | null;
 };
 
 export type ParsedScores = {
@@ -16,7 +18,12 @@ export type ParsedScores = {
   words: ParsedWord[];
 };
 
-export type TextMark = { text: string; kind: "plain" | "match" | "miss" | "wrong" | "oov" };
+export type TextMark = {
+  text: string;
+  kind: "plain" | "match" | "miss" | "wrong" | "oov";
+  beginMs?: number | null;
+  endMs?: number | null;
+};
 
 const WORD = /[A-Za-z]+(?:'[A-Za-z]+)*/g;
 
@@ -63,6 +70,16 @@ function findResult(input: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function wordTime(word: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    if (!(key in word)) continue;
+    const number = asNumber(word[key]);
+    if (number == null || number < 0) return null;
+    return number;
+  }
+  return null;
+}
+
 function readWords(result: Record<string, unknown>): ParsedWord[] {
   const source = (Array.isArray(result.Words) ? result.Words : result.words) as unknown[] | undefined;
   if (!source) return [];
@@ -80,7 +97,14 @@ function readWords(result: Record<string, unknown>): ParsedWord[] {
       if (!symbol) return [];
       return [{ phone: symbol, accuracy: accuracyPercent(row.PronAccuracy) }];
     });
-    return [{ word: text, matchTag: tag ?? 0, accuracy: accuracyPercent(word.PronAccuracy), phones }];
+    return [{
+      word: text,
+      matchTag: tag ?? 0,
+      accuracy: accuracyPercent(word.PronAccuracy),
+      phones,
+      beginMs: wordTime(word, ["MemBeginTime", "BeginTime", "Mbtm"]),
+      endMs: wordTime(word, ["MemEndTime", "EndTime", "Metm"]),
+    }];
   });
 }
 
@@ -126,7 +150,7 @@ export function presentSentence(text: string, rawJson: string | null): { marks: 
     cursor += 1;
     const kind: TextMark["kind"] =
       word?.matchTag === 2 ? "miss" : word?.matchTag === 3 ? "wrong" : word?.matchTag === 4 ? "oov" : "match";
-    return { text: token, kind };
+    return { text: token, kind, beginMs: word?.beginMs ?? null, endMs: word?.endMs ?? null };
   });
   return { marks, extras };
 }

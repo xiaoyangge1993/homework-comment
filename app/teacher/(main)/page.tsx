@@ -1,4 +1,10 @@
 import { listAssignments } from "@/lib/assignments";
+import { referenceHint } from "@/lib/reference-hint";
+
+function hintSuffix(sentenceCount: number, missingReference: number, hasDemoVideo: boolean): string {
+  const hint = referenceHint({ sentenceCount, missingReference, hasDemoVideo });
+  return hint === "每句都有标准音" ? "" : ` · ${hint}`;
+}
 
 const statusLabel = {
   draft: "草稿",
@@ -24,7 +30,9 @@ export default function TeacherHomePage() {
               <strong>{assignment.title}</strong>
               <p className="muted">
                 {statusLabel[assignment.status]} · {assignment.sentence_count} 句
-                {assignment.status !== "draft" && assignment.missing_reference > 0 ? " · 无节奏参照" : ""}
+                {assignment.status !== "draft"
+                  ? hintSuffix(assignment.sentence_count, assignment.missing_reference, assignment.has_demo === 1)
+                  : ""}
                 {assignment.join_code ? ` · 班级码 ${assignment.join_code}` : ""}
               </p>
             </div>

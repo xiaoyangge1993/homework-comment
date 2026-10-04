@@ -44,11 +44,12 @@ export async function commandWorks(command: "ffmpeg" | "ffprobe"): Promise<boole
   }
 }
 
-export async function transcodeWav(input: string, output: string): Promise<void> {
-  await exec(resolveTool("ffmpeg"), ["-y", "-i", input, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output], {
-    timeout: 30000,
-    env: commandEnv(),
-  });
+export async function transcodeWav(input: string, output: string, timeout = 30000): Promise<void> {
+  await exec(
+    resolveTool("ffmpeg"),
+    ["-y", "-i", input, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output],
+    { timeout, env: commandEnv() },
+  );
 }
 
 export async function durationSeconds(file: string): Promise<number | null> {

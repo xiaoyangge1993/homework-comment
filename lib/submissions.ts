@@ -54,8 +54,10 @@ function parseReturned(value: string | null): number[] {
 export function getStudentAssignment(assignmentId: number, studentId: number, classId: number): StudentAssignmentView {
   const db = getDb();
   const assignment = db
-    .prepare("SELECT id, title, status, class_id FROM assignment WHERE id = ?")
-    .get(assignmentId) as { id: number; title: string; status: string; class_id: number } | undefined;
+    .prepare("SELECT id, title, status, class_id, demo_video_path FROM assignment WHERE id = ?")
+    .get(assignmentId) as
+    | { id: number; title: string; status: string; class_id: number; demo_video_path: string | null }
+    | undefined;
   if (!assignment || assignment.class_id !== classId) throw new AppError("找不到作业", 404);
   if (assignment.status === "draft") throw new AppError("作业还没发布", 404);
   const sentences = db
@@ -87,13 +89,14 @@ export function getStudentAssignment(assignmentId: number, studentId: number, cl
   if (submission) {
     const rows = db
       .prepare(
-        `SELECT id, sentence_id, audio_path, accuracy, fluency, completion, rhythm, raw_json, created_at
+        `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at
          FROM sentence_attempt WHERE submission_id = ? ORDER BY id DESC`,
       )
       .all(submission.id) as {
       id: number;
       sentence_id: number;
-      audio_path: string;
+      audio_path: string | null;
+      video_path: string | null;
       accuracy: number | null;
       fluency: number | null;
       completion: number | null;
@@ -106,7 +109,8 @@ export function getStudentAssignment(assignmentId: number, studentId: number, cl
       attempts.set(row.sentence_id, {
         id: row.id,
         sentenceId: row.sentence_id,
-        audioUrl: `/api/audio/attempt/${row.id}`,
+        audioUrl: row.audio_path ? `/api/audio/attempt/${row.id}` : null,
+        videoUrl: row.video_path ? `/api/video/attempt/${row.id}` : null,
         accuracy: row.accuracy,
         fluency: row.fluency,
         completion: row.completion,
@@ -121,6 +125,7 @@ export function getStudentAssignment(assignmentId: number, studentId: number, cl
     title: assignment.title,
     status: assignment.status as "published" | "closed",
     classId: assignment.class_id,
+    demoVideoUrl: assignment.demo_video_path ? `/api/video/demo/${assignment.id}` : null,
     sentences: sentences.map((sentence) => ({
       id: sentence.id,
       idx: sentence.idx,
@@ -160,7 +165,8 @@ export function createAttempt(input: {
   classId: number;
   assignmentId: number;
   sentenceId: number;
-  audioPath: string;
+  audioPath: string | null;
+  videoPath?: string | null;
 }): { attemptId: number; submissionId: number } {
   const view = getStudentAssignment(input.assignmentId, input.studentId, input.classId);
   if (!canRecordSentence(view, input.sentenceId)) throw new AppError("这句现在不能重录");
@@ -179,10 +185,10 @@ export function createAttempt(input: {
     const info = db
       .prepare(
         `INSERT INTO sentence_attempt
-          (submission_id, sentence_id, audio_path, accuracy, fluency, completion, rhythm, raw_json, created_at)
-         VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)`,
+          (submission_id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)`,
       )
-      .run(submissionId, input.sentenceId, input.audioPath, now);
+      .run(submissionId, input.sentenceId, input.audioPath, input.videoPath ?? null, now);
     if (view.submission?.status === "returned") {
       const remaining = view.submission.returnedSentenceIds.filter((id) => id !== input.sentenceId);
       db.prepare("UPDATE review SET sentence_ids_returned = ?, decision = ? WHERE submission_id = ?").run(
@@ -215,6 +221,17 @@ function refreshSubmission(submissionId: number, sentenceCount: number) {
     .get(submissionId) as { count: number };
   const status: SubmissionStatus = covered.count >= sentenceCount && sentenceCount > 0 ? "submitted" : "partial";
   db.prepare("UPDATE submission SET status = ?, updated_at = ? WHERE id = ?").run(status, new Date().toISOString(), submissionId);
+}
+
+export function attemptVideo(attemptId: number): { path: string; studentId: number } | null {
+  const row = getDb()
+    .prepare(
+      `SELECT a.video_path AS path, s.student_id AS studentId
+       FROM sentence_attempt a JOIN submission s ON s.id = a.submission_id WHERE a.id = ?`,
+    )
+    .get(attemptId) as { path: string | null; studentId: number } | undefined;
+  if (!row?.path) return null;
+  return { path: row.path, studentId: row.studentId };
 }
 
 export function attemptAudio(attemptId: number): { path: string; studentId: number } | null {
@@ -276,6 +293,7 @@ export function mySubmissions(studentId: number, assignmentId?: number) {
         rhythm: sentence.attempt?.rhythm ?? null,
         rawJson: sentence.attempt?.rawJson ?? null,
         audioUrl: sentence.attempt?.audioUrl ?? null,
+        videoUrl: sentence.attempt?.videoUrl ?? null,
       })),
     };
   });

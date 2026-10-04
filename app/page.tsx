@@ -6,7 +6,7 @@ export default function HomePage() {
       </div>
       <main className="wrap">
         <h1>这一班的跟读，先让机器听一遍。</h1>
-        <p className="muted">老师布置课文、逐句录标准音。学生用班级码跟读。老师只听有问题的作业。</p>
+        <p className="muted">老师布置课文和整段示范视频。学生用班级码逐句跟读。老师只听有问题的作业。</p>
         <div className="big-links">
           <a className="big-link" href="/teacher">
             老师进入 <span>→</span>

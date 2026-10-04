@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS assignment (
   class_id INTEGER NOT NULL REFERENCES class(id),
   title TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'closed')),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  demo_video_path TEXT,
+  demo_audio_path TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sentence (
@@ -45,7 +47,8 @@ CREATE TABLE IF NOT EXISTS sentence_attempt (
   id INTEGER PRIMARY KEY,
   submission_id INTEGER NOT NULL REFERENCES submission(id),
   sentence_id INTEGER NOT NULL REFERENCES sentence(id),
-  audio_path TEXT NOT NULL,
+  audio_path TEXT,
+  video_path TEXT,
   accuracy REAL,
   fluency REAL,
   completion REAL,

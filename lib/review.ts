@@ -24,7 +24,8 @@ export type BoardRow = {
 type AttemptRow = {
   id: number;
   sentence_id: number;
-  audio_path: string;
+  audio_path: string | null;
+  video_path: string | null;
   accuracy: number | null;
   fluency: number | null;
   completion: number | null;
@@ -36,7 +37,7 @@ type AttemptRow = {
 function latestAttempts(submissionId: number): Map<number, AttemptRow> {
   const rows = getDb()
     .prepare(
-      `SELECT id, sentence_id, audio_path, accuracy, fluency, completion, rhythm, raw_json, created_at
+      `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at
        FROM sentence_attempt WHERE submission_id = ? ORDER BY id DESC`,
     )
     .all(submissionId) as AttemptRow[];
@@ -52,7 +53,8 @@ function toAttempt(row: AttemptRow | undefined): AttemptView | null {
   return {
     id: row.id,
     sentenceId: row.sentence_id,
-    audioUrl: `/api/audio/attempt/${row.id}`,
+    audioUrl: row.audio_path ? `/api/audio/attempt/${row.id}` : null,
+    videoUrl: row.video_path ? `/api/video/attempt/${row.id}` : null,
     accuracy: row.accuracy,
     fluency: row.fluency,
     completion: row.completion,

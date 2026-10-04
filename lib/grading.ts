@@ -7,6 +7,7 @@ import { getDb } from "./db";
 import { buildDraft, type DraftSentence } from "./draft";
 import { AppError } from "./errors";
 import { commandWorks, detectInternalPause, durationSeconds, transcodeWav } from "./media";
+import { extractWav, resolveVideo } from "./video";
 import { decodePcmWav, encodePcm16Wav } from "./wav";
 import { classifyRhythm } from "./rhythm";
 import { wordsOf } from "./soe-parse";
@@ -15,7 +16,8 @@ import type { RhythmLabel, SubmissionStatus } from "./types";
 
 type AttemptRow = {
   id: number;
-  audio_path: string;
+  audio_path: string | null;
+  video_path: string | null;
   submission_id: number;
   sentence_id: number;
   text_en: string;
@@ -26,23 +28,34 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT a.id, a.audio_path, a.submission_id, a.sentence_id, s.text_en, s.reference_audio_path
+      `SELECT a.id, a.audio_path, a.video_path, a.submission_id, a.sentence_id, s.text_en, s.reference_audio_path
        FROM sentence_attempt a JOIN sentence s ON s.id = a.sentence_id WHERE a.id = ?`,
     )
     .get(attemptId) as AttemptRow | undefined;
   if (!row) return;
 
-  const rhythm = await measureRhythm(row.audio_path, row.reference_audio_path);
+  let audioRelative = row.audio_path;
+  if (row.video_path && !isPcm16k(audioRelative)) {
+    const extracted = await extractAttemptAudio(attemptId, row.video_path);
+    if (!extracted.ok) {
+      writeGrade(attemptId, row.submission_id, null, { error: extracted.error }, null, null, null);
+      return;
+    }
+    audioRelative = extracted.path;
+    db.prepare("UPDATE sentence_attempt SET audio_path = ? WHERE id = ?").run(audioRelative, attemptId);
+  }
+
+  const rhythm = audioRelative ? await measureRhythm(audioRelative, row.reference_audio_path) : null;
   let raw: unknown = { error: EVALUATION_NOT_CONFIGURED };
   let accuracy: number | null = null;
   let fluency: number | null = null;
   let completion: number | null = null;
 
-  const studentFile = resolveAudio(row.audio_path);
+  const studentFile = audioRelative ? resolveAudio(audioRelative) : null;
   if (!soeConfigured()) {
     raw = { error: EVALUATION_NOT_CONFIGURED };
   } else if (!studentFile) {
-    raw = { error: "找不到录音" };
+    raw = { error: row.video_path ? "音频转换失败" : "找不到录音" };
   } else {
     const direct = pcm16kWav(studentFile);
     if (direct) {
@@ -73,10 +86,44 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
     }
   }
 
-  db.prepare(
-    "UPDATE sentence_attempt SET accuracy = ?, fluency = ?, completion = ?, rhythm = ?, raw_json = ? WHERE id = ?",
-  ).run(accuracy, fluency, completion, rhythm, JSON.stringify(raw), attemptId);
-  syncDraft(row.submission_id);
+  writeGrade(attemptId, row.submission_id, rhythm, raw, accuracy, fluency, completion);
+}
+
+function writeGrade(
+  attemptId: number,
+  submissionId: number,
+  rhythm: RhythmLabel | null,
+  raw: unknown,
+  accuracy: number | null,
+  fluency: number | null,
+  completion: number | null,
+) {
+  getDb()
+    .prepare("UPDATE sentence_attempt SET accuracy = ?, fluency = ?, completion = ?, rhythm = ?, raw_json = ? WHERE id = ?")
+    .run(accuracy, fluency, completion, rhythm, JSON.stringify(raw), attemptId);
+  syncDraft(submissionId);
+}
+
+function isPcm16k(relative: string | null): boolean {
+  if (!relative) return false;
+  const file = resolveAudio(relative);
+  return Boolean(file && pcm16kWav(file));
+}
+
+async function extractAttemptAudio(
+  attemptId: number,
+  videoRelative: string,
+): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  const video = resolveVideo(videoRelative);
+  if (!video) return { ok: false, error: "找不到视频" };
+  if (!(await commandWorks("ffmpeg"))) return { ok: false, error: "需要安装 ffmpeg 才能评测" };
+  const wavPath = path.join(audioRoot(), "wav", `${attemptId}.wav`);
+  try {
+    const relative = await extractWav(video, wavPath, 60_000);
+    return { ok: true, path: relative };
+  } catch {
+    return { ok: false, error: "音频转换失败" };
+  }
 }
 
 function pcm16kWav(file: string): Buffer | null {

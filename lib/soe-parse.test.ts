@@ -68,6 +68,35 @@ describe("parseEvaluation", () => {
     assert.equal(parsed.completion, null);
   });
 
+  it("keeps word start times in milliseconds", () => {
+    const parsed = parseEvaluation({
+      result: {
+        PronAccuracy: 70,
+        PronFluency: 0.8,
+        PronCompletion: 1,
+        Words: [
+          { Word: "are", MatchTag: 2, PronAccuracy: 0, MemBeginTime: 480, MemEndTime: 900 },
+          { Word: "cute", MatchTag: 3, PronAccuracy: 40, BeginTime: 1000, EndTime: 1500 },
+        ],
+      },
+    });
+    assert.equal(parsed.words[0]?.beginMs, 480);
+    assert.equal(parsed.words[0]?.endMs, 900);
+    assert.equal(parsed.words[1]?.beginMs, 1000);
+    const view = presentSentence("They are cute.", JSON.stringify({
+      result: {
+        PronAccuracy: 70,
+        Words: [
+          { Word: "They", MatchTag: 0, PronAccuracy: 90 },
+          { Word: "are", MatchTag: 2, PronAccuracy: 0, MemBeginTime: 480, MemEndTime: 900 },
+          { Word: "cute", MatchTag: 3, PronAccuracy: 40 },
+        ],
+      },
+    }));
+    assert.equal(view.marks.find((mark) => mark.text === "are")?.beginMs, 480);
+    assert.equal(view.marks.find((mark) => mark.text === "cute")?.beginMs, null);
+  });
+
   it("underlines missed words, marks wrong words, and lists extras", () => {
     const view = presentSentence("They are cute.", JSON.stringify(sample));
     assert.equal(view.marks.find((mark) => mark.text === "are")?.kind, "miss");

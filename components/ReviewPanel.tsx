@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { presentSentence } from "@/lib/soe-parse";
 import type { ReviewSentence } from "@/lib/types";
+import { MarkedSentence } from "./MarkedSentence";
 
 export function ReviewPanel({
   submissionId,
@@ -50,60 +50,16 @@ export function ReviewPanel({
         <input type="checkbox" checked={onlyProblems} onChange={(event) => setOnlyProblems(event.target.checked)} />
         只看要听的句子
       </label>
-      {visible.map((sentence) => {
-        const presented = presentSentence(sentence.textEn, sentence.attempt?.rawJson ?? null);
-        return (
-          <article key={sentence.id} className={sentence.needsListen ? "card too-long" : "card"}>
-            <div className="sentence-head">
-              <h2>第 {sentence.index} 句</h2>
-              {sentence.needsListen ? <span className="pill listen">建议亲听</span> : <span className="pill pass">可过</span>}
-            </div>
-            <p className="sentence-en">
-              {presented.marks.map((mark, index) => (
-                <span
-                  key={index}
-                  className={mark.kind === "miss" || mark.kind === "wrong" || mark.kind === "oov" ? `mark-${mark.kind}` : undefined}
-                >
-                  {mark.text}
-                </span>
-              ))}
-            </p>
-            {presented.extras.length > 0 ? <p>多读：{presented.extras.join("、")}</p> : null}
-            {sentence.textZh ? <p className="muted">{sentence.textZh}</p> : null}
-            {sentence.referenceUrl ? (
-              <div>
-                <p className="muted">标准音</p>
-                <audio controls preload="none" src={sentence.referenceUrl} />
-              </div>
-            ) : null}
-            {sentence.attempt ? (
-              <div>
-                <p className="muted">学生录音</p>
-                <audio controls preload="none" src={sentence.attempt.audioUrl} />
-                <p>
-                  准确度 {show(sentence.attempt.accuracy)} · 流利度 {show(sentence.attempt.fluency)} · 完整度{" "}
-                  {show(sentence.attempt.completion)}
-                  {sentence.attempt.rhythm ? ` · 节奏 ${sentence.attempt.rhythm}` : " · 节奏 —"}
-                </p>
-              </div>
-            ) : (
-              <p className="warn">这句还没有录音</p>
-            )}
-            <label className="row">
-              <input
-                type="checkbox"
-                checked={picked.includes(sentence.id)}
-                onChange={(event) =>
-                  setPicked((current) =>
-                    event.target.checked ? [...current, sentence.id] : current.filter((id) => id !== sentence.id),
-                  )
-                }
-              />
-              打回这一句
-            </label>
-          </article>
-        );
-      })}
+      {visible.map((sentence) => (
+        <ReviewSentenceCard
+          key={sentence.id}
+          sentence={sentence}
+          picked={picked.includes(sentence.id)}
+          onToggle={(checked) =>
+            setPicked((current) => (checked ? [...current, sentence.id] : current.filter((id) => id !== sentence.id)))
+          }
+        />
+      ))}
       <label>
         点评
         <textarea value={text} onChange={(event) => setText(event.target.value)} />
@@ -141,6 +97,71 @@ export function ReviewPanel({
       </div>
       {error ? <p className="error">{error}</p> : null}
     </div>
+  );
+}
+
+function ReviewSentenceCard({
+  sentence,
+  picked,
+  onToggle,
+}: {
+  sentence: ReviewSentence;
+  picked: boolean;
+  onToggle: (checked: boolean) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const attempt = sentence.attempt;
+
+  function seek(seconds: number) {
+    const player = videoRef.current;
+    if (!player) return;
+    player.currentTime = seconds;
+    void player.play();
+  }
+
+  return (
+    <article className={sentence.needsListen ? "card too-long" : "card"}>
+      <div className="sentence-head">
+        <h2>第 {sentence.index} 句</h2>
+        {sentence.needsListen ? <span className="pill listen">建议亲听</span> : <span className="pill pass">可过</span>}
+      </div>
+      <MarkedSentence text={sentence.textEn} rawJson={attempt?.rawJson ?? null} onSeek={attempt?.videoUrl ? seek : undefined} />
+      {sentence.textZh ? <p className="muted">{sentence.textZh}</p> : null}
+      {sentence.referenceUrl ? (
+        <div>
+          <p className="muted">标准音</p>
+          <audio controls preload="none" src={sentence.referenceUrl} />
+        </div>
+      ) : null}
+      {attempt?.videoUrl ? (
+        <div>
+          <p className="muted">学生视频</p>
+          <video ref={videoRef} controls playsInline preload="metadata" src={attempt.videoUrl} />
+          <ScoreLine attempt={attempt} />
+        </div>
+      ) : attempt?.audioUrl ? (
+        <div>
+          <p className="muted">学生录音</p>
+          <audio controls preload="none" src={attempt.audioUrl} />
+          <ScoreLine attempt={attempt} />
+        </div>
+      ) : (
+        <p className="warn">这句还没有录音</p>
+      )}
+      <label className="row">
+        <input type="checkbox" checked={picked} onChange={(event) => onToggle(event.target.checked)} />
+        打回这一句
+      </label>
+    </article>
+  );
+}
+
+function ScoreLine({ attempt }: { attempt: NonNullable<ReviewSentence["attempt"]> }) {
+  return (
+    <p>
+      准确度 {show(attempt.accuracy)} · 流利度 {show(attempt.fluency)} · 完整度 {show(attempt.completion)}
+      {attempt.rhythm ? ` · 节奏 ${attempt.rhythm}` : " · 节奏 —"}
+    </p>
   );
 }
 

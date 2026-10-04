@@ -6,8 +6,17 @@ import { limits } from "@/lib/config";
 import type { SentenceDTO } from "@/lib/types";
 import { countWords } from "@/lib/sentences";
 import { Recorder } from "./Recorder";
+import { VideoCapture } from "./VideoCapture";
 
-export function SentenceEditor({ assignmentId, initial }: { assignmentId: number; initial: SentenceDTO[] }) {
+export function SentenceEditor({
+  assignmentId,
+  initial,
+  demoVideoUrl,
+}: {
+  assignmentId: number;
+  initial: SentenceDTO[];
+  demoVideoUrl: string | null;
+}) {
   const router = useRouter();
   const [sentences, setSentences] = useState(initial);
   const [drafts, setDrafts] = useState(() =>
@@ -16,6 +25,7 @@ export function SentenceEditor({ assignmentId, initial }: { assignmentId: number
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [demoUrl, setDemoUrl] = useState(demoVideoUrl);
 
   function replace(next: SentenceDTO[]) {
     setSentences(next);
@@ -60,6 +70,18 @@ export function SentenceEditor({ assignmentId, initial }: { assignmentId: number
     replace(detail.sentences);
   }
 
+  async function uploadDemo(file: File) {
+    const form = new FormData();
+    form.set("kind", "video");
+    form.set("file", file);
+    const response = await fetch(`/api/assignments/${assignmentId}/demo`, { method: "POST", body: form });
+    const payload = (await response.json()) as { error?: string; url?: string };
+    if (!response.ok) throw new Error(payload.error || "布置视频保存失败");
+    setDemoUrl(`${payload.url || `/api/video/demo/${assignmentId}`}?v=${Date.now()}`);
+    setMessage("布置视频已保存");
+    router.refresh();
+  }
+
   async function publish() {
     setPending(true);
     setError(null);
@@ -78,6 +100,25 @@ export function SentenceEditor({ assignmentId, initial }: { assignmentId: number
 
   return (
     <div className="stack">
+      <section className="card">
+        <h2>布置视频</h2>
+        <p className="muted">学生跟读前会先看这段整段示范。mp4、webm 或 mov，最长 5 分钟，最大 200MB。可以重录或替换。</p>
+        {demoUrl ? (
+          <>
+            <video controls playsInline preload="metadata" src={demoUrl} />
+            <p className="muted">整段音轨已抽出，只作整篇参照，不参与逐句打分。</p>
+          </>
+        ) : (
+          <p className="warn">还没有布置视频。发布前需要上传或录一段。</p>
+        )}
+        <VideoCapture
+          maxSeconds={limits.maxDemoVideoSeconds}
+          maxBytes={limits.maxDemoVideoBytes}
+          tooBig="布置视频不能超过 200MB"
+          disabled={pending}
+          onSubmit={uploadDemo}
+        />
+      </section>
       {sentences.map((sentence, index) => {
         const draft = drafts[sentence.id] ?? { textEn: sentence.textEn, textZh: sentence.textZh };
         const words = countWords(draft.textEn);
@@ -134,7 +175,7 @@ export function SentenceEditor({ assignmentId, initial }: { assignmentId: number
                 <audio controls preload="none" src={`${sentence.referenceUrl}?v=${sentence.id}`} />
               </div>
             ) : (
-              <p className="muted">还没有标准音。可以先发布，看板会提示无节奏参照。</p>
+              <p className="muted">还没有这句的标准音。可以不录。一句都没录时，看板会写「只有整段视频参照」。</p>
             )}
             <Recorder disabled={pending} submitLabel="保存标准音" onSubmit={(blob) => upload(sentence.id, blob)} />
           </article>
@@ -142,7 +183,7 @@ export function SentenceEditor({ assignmentId, initial }: { assignmentId: number
       })}
       {message ? <p className="ok">{message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
-      <button type="button" className="btn primary" disabled={pending || blocked} onClick={publish}>
+      <button type="button" className="btn primary" disabled={pending || blocked || !demoUrl} onClick={publish}>
         发布作业
       </button>
     </div>

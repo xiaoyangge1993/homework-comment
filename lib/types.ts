@@ -11,7 +11,12 @@ export type SentenceDTO = {
 export type AssignmentStatus = "draft" | "published" | "closed";
 export type SubmissionStatus = "partial" | "submitted" | "returned" | "accepted";
 export type RhythmLabel = "接近" | "偏快" | "偏慢" | "停顿偏长";
-export type TextMark = { text: string; kind: "plain" | "match" | "miss" | "wrong" | "oov" };
+export type TextMark = {
+  text: string;
+  kind: "plain" | "match" | "miss" | "wrong" | "oov";
+  beginMs?: number | null;
+  endMs?: number | null;
+};
 
 export type ReviewSentence = {
   id: number;
@@ -26,7 +31,8 @@ export type ReviewSentence = {
 export type AttemptView = {
   id: number;
   sentenceId: number;
-  audioUrl: string;
+  audioUrl: string | null;
+  videoUrl: string | null;
   accuracy: number | null;
   fluency: number | null;
   completion: number | null;
@@ -40,6 +46,7 @@ export type StudentAssignmentView = {
   title: string;
   status: "published" | "closed";
   classId: number;
+  demoVideoUrl: string | null;
   sentences: {
     id: number;
     idx: number;

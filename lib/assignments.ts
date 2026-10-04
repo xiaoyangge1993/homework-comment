@@ -1,11 +1,15 @@
 import "server-only";
 
 import { randomBytes } from "crypto";
+import fs from "fs";
+import path from "path";
+import { audioRoot } from "./audio";
 import { limits } from "./config";
 import { getDb } from "./db";
 import { AppError } from "./errors";
 import { countWords, mergeText, pairSentences, splitChineseOnce, splitOnce, tooLong } from "./sentences";
 import type { AssignmentStatus, SentenceDTO } from "./types";
+import { acceptVideoUpload, extractWav } from "./video";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -17,6 +21,8 @@ export type AssignmentDetail = {
   createdAt: string;
   joinCode: string | null;
   missingReference: boolean;
+  hasDemoVideo: boolean;
+  demoVideoUrl: string | null;
   sentences: SentenceDTO[];
 };
 
@@ -36,6 +42,7 @@ type AssignmentRow = {
   status: "draft" | "published" | "closed";
   created_at: string;
   join_code: string | null;
+  demo_video_path: string | null;
 };
 
 function toSentence(row: SentenceRow): SentenceDTO {
@@ -56,7 +63,8 @@ export function listAssignments() {
     .prepare(
       `SELECT a.id, a.title, a.status, a.created_at, c.join_code,
         (SELECT COUNT(*) FROM sentence s WHERE s.assignment_id = a.id) AS sentence_count,
-        (SELECT COUNT(*) FROM sentence s WHERE s.assignment_id = a.id AND (s.reference_audio_path IS NULL OR s.reference_audio_path = '')) AS missing_reference
+        (SELECT COUNT(*) FROM sentence s WHERE s.assignment_id = a.id AND (s.reference_audio_path IS NULL OR s.reference_audio_path = '')) AS missing_reference,
+        CASE WHEN a.demo_video_path IS NOT NULL AND a.demo_video_path != '' THEN 1 ELSE 0 END AS has_demo
       FROM assignment a
       JOIN class c ON c.id = a.class_id
       ORDER BY a.id DESC`,
@@ -69,6 +77,7 @@ export function listAssignments() {
     join_code: string | null;
     sentence_count: number;
     missing_reference: number;
+    has_demo: number;
   }[];
 }
 
@@ -104,7 +113,7 @@ export function getAssignment(id: number): AssignmentDetail {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT a.id, a.class_id, a.title, a.status, a.created_at, c.join_code
+      `SELECT a.id, a.class_id, a.title, a.status, a.created_at, a.demo_video_path, c.join_code
        FROM assignment a JOIN class c ON c.id = a.class_id WHERE a.id = ?`,
     )
     .get(id) as AssignmentRow | undefined;
@@ -120,6 +129,8 @@ export function getAssignment(id: number): AssignmentDetail {
     createdAt: row.created_at,
     joinCode: row.join_code,
     missingReference: sentences.some((sentence) => !sentence.reference_audio_path),
+    hasDemoVideo: Boolean(row.demo_video_path),
+    demoVideoUrl: row.demo_video_path ? `/api/video/demo/${row.id}` : null,
     sentences: sentences.map(toSentence),
   };
 }
@@ -204,6 +215,46 @@ function reindex(assignmentId: number) {
   rows.forEach((row, index) => update.run(index, row.id));
 }
 
+export async function saveDemoVideo(
+  assignmentId: number,
+  file: { name: string; type: string; bytes: Buffer },
+): Promise<void> {
+  const detail = getAssignment(assignmentId);
+  if (detail.status !== "draft") throw new AppError("发布后不能再换布置视频");
+  const stored = await acceptVideoUpload({
+    subdir: `demo/${assignmentId}`,
+    filename: file.name || "demo.webm",
+    mime: file.type,
+    bytes: file.bytes,
+    maxBytes: limits.maxDemoVideoBytes,
+    maxSeconds: limits.maxDemoVideoSeconds,
+    badType: "布置视频只接受 mp4、webm、mov",
+    tooBig: "布置视频不能超过 200MB",
+    tooLong: "布置视频不能超过 5 分钟",
+    unreadable: "读不出视频时长",
+    missingFfmpeg: "需要安装 ffmpeg 才能处理布置视频",
+  });
+  const wavAbsolute = path.join(audioRoot(), "demo", String(assignmentId), `${Date.now()}.wav`);
+  let audioRelative: string;
+  try {
+    audioRelative = await extractWav(stored.absolute, wavAbsolute, 120_000);
+  } catch {
+    fsUnlink(stored.absolute);
+    throw new AppError("抽不出布置视频的音轨");
+  }
+  getDb()
+    .prepare("UPDATE assignment SET demo_video_path = ?, demo_audio_path = ? WHERE id = ?")
+    .run(stored.relative, audioRelative, assignmentId);
+}
+
+function fsUnlink(file: string) {
+  try {
+    fs.unlinkSync(file);
+  } catch {
+    /* rejected demo file is already gone */
+  }
+}
+
 export function setReferenceAudio(assignmentId: number, sentenceId: number, relativePath: string) {
   const row = draftSentence(sentenceId);
   if (row.assignment_id !== assignmentId) throw new AppError("句子不属于这份作业");
@@ -225,6 +276,7 @@ export function publishAssignment(id: number): { joinCode: string } {
   const detail = getAssignment(id);
   if (detail.status !== "draft") throw new AppError("只有草稿可以发布");
   if (detail.sentences.length === 0) throw new AppError("还没有句子");
+  if (!detail.hasDemoVideo) throw new AppError("请先上传或录制布置视频");
   for (const sentence of detail.sentences) {
     if (sentence.wordCount === 0) throw new AppError(`第 ${sentence.idx + 1} 句没有英文`);
     if (sentence.tooLong) {
@@ -245,6 +297,14 @@ export function closeAssignment(id: number) {
   const detail = getAssignment(id);
   if (detail.status !== "published") throw new AppError("只有已发布的作业可以结束");
   getDb().prepare("UPDATE assignment SET status = 'closed' WHERE id = ?").run(id);
+}
+
+export function demoVideoPath(assignmentId: number): { path: string; classId: number } | null {
+  const row = getDb()
+    .prepare("SELECT demo_video_path AS path, class_id AS classId FROM assignment WHERE id = ?")
+    .get(assignmentId) as { path: string | null; classId: number } | undefined;
+  if (!row?.path) return null;
+  return { path: row.path, classId: row.classId };
 }
 
 export function referenceAudioPath(sentenceId: number): { path: string; classId: number } | null {

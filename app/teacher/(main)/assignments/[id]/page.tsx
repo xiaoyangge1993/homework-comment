@@ -5,6 +5,7 @@ import { ReviewPanel } from "@/components/ReviewPanel";
 import { SentenceEditor } from "@/components/SentenceEditor";
 import { getAssignment } from "@/lib/assignments";
 import { AppError } from "@/lib/errors";
+import { referenceHint } from "@/lib/reference-hint";
 import { loadBoard, loadReview } from "@/lib/review";
 import { ttsConfigured } from "@/lib/tts";
 
@@ -31,8 +32,8 @@ export default async function AssignmentPage({
     return (
       <>
         <h1>{detail.title}</h1>
-        <p className="muted">草稿。每句都可以重录标准音。句子都有英文、且都不超过 30 个词之后才能发布。</p>
-        <SentenceEditor assignmentId={detail.id} initial={detail.sentences} />
+        <p className="muted">草稿。先上传或录制整段布置视频。逐句标准音可以不录。句子都有英文、且都不超过 30 个词，才能发布。</p>
+        <SentenceEditor assignmentId={detail.id} initial={detail.sentences} demoVideoUrl={detail.demoVideoUrl} />
       </>
     );
   }
@@ -46,7 +47,13 @@ export default async function AssignmentPage({
     <>
       <h1>{detail.title}</h1>
       <p className="muted">{detail.status === "published" ? "已发布" : "已结束"}</p>
-      {detail.missingReference ? <p className="warn">无节奏参照</p> : <p className="ok">每句都有标准音</p>}
+      {detail.demoVideoUrl ? (
+        <section className="card">
+          <p className="muted">布置视频</p>
+          <video controls playsInline preload="metadata" src={detail.demoVideoUrl} />
+        </section>
+      ) : null}
+      <ReferenceHint detail={detail} />
       {detail.joinCode ? (
         <section className="card">
           <p className="muted">班级码</p>
@@ -63,6 +70,15 @@ export default async function AssignmentPage({
       )}
     </>
   );
+}
+
+function ReferenceHint({ detail }: { detail: ReturnType<typeof getAssignment> }) {
+  const hint = referenceHint({
+    sentenceCount: detail.sentences.length,
+    missingReference: detail.sentences.filter((sentence) => !sentence.referenceUrl).length,
+    hasDemoVideo: detail.hasDemoVideo,
+  });
+  return <p className={hint === "每句都有标准音" ? "ok" : "warn"}>{hint}</p>;
 }
 
 function ClassBoard({ assignmentId }: { assignmentId: number }) {

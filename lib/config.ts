@@ -11,4 +11,8 @@ export const limits = {
   draftMaxChars: 80,
   ttsSpeed: -1,
   maxAudioBytes: 8 * 1024 * 1024,
+  maxDemoVideoBytes: 200 * 1024 * 1024,
+  maxDemoVideoSeconds: 5 * 60,
+  maxSentenceVideoBytes: 80 * 1024 * 1024,
+  maxSentenceVideoSeconds: 60,
 };
