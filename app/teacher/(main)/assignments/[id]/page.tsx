@@ -4,7 +4,7 @@ import { PassButton } from "@/components/PassButton";
 import { ReviewPanel } from "@/components/ReviewPanel";
 import { SentenceEditor } from "@/components/SentenceEditor";
 import { getAssignment, type AssignmentDetail } from "@/lib/assignments";
-import { AppError } from "@/lib/errors";
+import { AppError, visibleError } from "@/lib/errors";
 import { referenceHint } from "@/lib/reference-hint";
 
 export default async function AssignmentPage({
@@ -24,7 +24,8 @@ export default async function AssignmentPage({
   } catch (error) {
     if (error instanceof AppError && error.status === 404) notFound();
     if (error instanceof AppError) return <p className="error">{error.message}</p>;
-    throw error;
+    console.error(error);
+    return <p className="error">{visibleError(error)}</p>;
   }
 
   if (detail.status === "draft") {
@@ -166,7 +167,8 @@ async function TeacherReview({ assignmentId, submissionId }: { assignmentId: num
   } catch (error) {
     if (error instanceof AppError && error.status === 404) notFound();
     if (error instanceof AppError) return <p className="error">{error.message}</p>;
-    throw error;
+    console.error(error);
+    return <p className="error">{visibleError(error)}</p>;
   }
   return (
     <div className="grade-surface">

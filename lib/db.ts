@@ -2,7 +2,7 @@ import "server-only";
 
 import fs from "fs";
 import path from "path";
-import Database from "better-sqlite3";
+import type BetterSqlite3 from "better-sqlite3";
 import { connect, type Connection, type Transaction } from "@tursodatabase/serverless";
 import { resolveDataDir } from "./data-dir";
 import { AppError } from "./errors";
@@ -49,15 +49,23 @@ export function getDb(): Promise<Sql> {
 
 async function openDatabase(): Promise<Sql> {
   const remote = tursoConfig();
-  const db = remote ? await openRemote(remote.url, remote.authToken) : openLocal();
+  const db = remote ? await openRemote(remote.url, remote.authToken) : await openLocal();
   await ensureVideoColumns(db);
   await ensureTeacher(db);
   return db;
 }
 
-function openLocal(): Sql {
+async function loadBetterSqlite3(): Promise<typeof BetterSqlite3> {
+  const imported = await import("better-sqlite3");
+  const ctor = imported.default;
+  if (typeof ctor !== "function") throw new AppError("本地数据库模块加载失败");
+  return ctor;
+}
+
+async function openLocal(): Promise<Sql> {
   const dir = dataDir();
   fs.mkdirSync(path.join(dir, "audio"), { recursive: true });
+  const Database = await loadBetterSqlite3();
   const raw = new Database(path.join(dir, "app.db"));
   raw.pragma("journal_mode = WAL");
   raw.pragma("foreign_keys = ON");
@@ -80,7 +88,7 @@ async function openRemote(url: string, authToken: string): Promise<Sql> {
   });
 }
 
-function sqliteExecutor(raw: Database.Database): Executor {
+function sqliteExecutor(raw: BetterSqlite3.Database): Executor {
   return {
     get: (sql, args) => Promise.resolve(raw.prepare(sql).get(...args)),
     all: (sql, args) => Promise.resolve(raw.prepare(sql).all(...args) as unknown[]),
@@ -121,7 +129,7 @@ async function ensureVideoColumns(db: Sql) {
   const cols = (await db.prepare("PRAGMA table_info(sentence_attempt)").all()) as { name: string; notnull: number }[];
   const audio = cols.find((col) => col.name === "audio_path");
   const hasVideo = cols.some((col) => col.name === "video_path");
-  if (audio && audio.notnull === 0 && hasVideo) {
+  if (audio && Number(audio.notnull) === 0 && hasVideo) {
     videoColumnsReady = true;
     return;
   }

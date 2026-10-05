@@ -46,15 +46,21 @@ type AssignmentRow = {
   demo_video_path: string | null;
 };
 
+function asText(value: unknown): string {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
 function toSentence(row: SentenceRow): SentenceDTO {
+  const textEn = asText(row.text_en);
+  const id = Number(row.id);
   return {
-    id: row.id,
-    idx: row.idx,
-    textEn: row.text_en,
-    textZh: row.text_zh ?? "",
-    wordCount: countWords(row.text_en),
-    tooLong: tooLong(row.text_en),
-    referenceUrl: row.reference_audio_path ? `/api/audio/reference/${row.id}` : null,
+    id,
+    idx: Number(row.idx),
+    textEn,
+    textZh: asText(row.text_zh),
+    wordCount: countWords(textEn),
+    tooLong: tooLong(textEn),
+    referenceUrl: row.reference_audio_path ? `/api/audio/reference/${id}` : null,
   };
 }
 
@@ -88,7 +94,7 @@ async function classId(): Promise<number> {
   if (!row) {
     throw new AppError(readEnv("TEACHER_PASSWORD") ? "班级数据还没有写好，请重新打开页面" : missingEnvMessage("TEACHER_PASSWORD"));
   }
-  return row.id;
+  return Number(row.id);
 }
 
 export async function createAssignment(input: { title: string; textEn: string; textZh: string }): Promise<number> {
@@ -126,11 +132,13 @@ export async function getAssignment(id: number): Promise<AssignmentDetail> {
   const sentences = (await db
     .prepare("SELECT * FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
     .all(id)) as SentenceRow[];
+  const rawStatus = typeof row.status === "string" ? row.status.trim() : row.status;
+  const status = rawStatus === "draft" || rawStatus === "published" || rawStatus === "closed" ? rawStatus : row.status;
   return {
-    id: row.id,
-    classId: row.class_id,
-    title: row.title,
-    status: row.status,
+    id: Number(row.id),
+    classId: Number(row.class_id),
+    title: asText(row.title),
+    status,
     createdAt: row.created_at,
     joinCode: row.join_code,
     missingReference: sentences.some((sentence) => !sentence.reference_audio_path),
