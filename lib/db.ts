@@ -3,7 +3,7 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import type BetterSqlite3 from "better-sqlite3";
-import { connect, type Connection, type Transaction } from "@tursodatabase/serverless";
+import type { Client, InValue, ResultSet, Value } from "@libsql/client/http";
 import { resolveDataDir } from "./data-dir";
 import { AppError } from "./errors";
 import { readEnv } from "./env";
@@ -14,11 +14,9 @@ import { tursoConfig } from "./turso-config";
 const globalForDb = globalThis as unknown as { homeworkDb?: Promise<Sql>; homeworkDataDir?: string };
 let videoColumnsReady = false;
 
-type Command = {
-  get(sql: string, ...args: unknown[]): Promise<unknown>;
-  all(sql: string, ...args: unknown[]): Promise<unknown[]>;
-  run(sql: string, ...args: unknown[]): Promise<{ changes?: number; lastInsertRowid?: number | bigint | null }>;
-  exec(sql: string): Promise<unknown>;
+type RemoteSession = {
+  execute(stmt: { sql: string; args?: InValue[] }): Promise<ResultSet>;
+  executeMultiple(sql: string): Promise<void>;
 };
 
 export function dataDir(): string {
@@ -75,17 +73,39 @@ async function openLocal(): Promise<Sql> {
 }
 
 async function openRemote(url: string, authToken: string): Promise<Sql> {
-  const connection = connect({ url, authToken });
-  await connection.exec(loadSchema());
-  await connection.exec("PRAGMA foreign_keys = ON");
+  const { createClient } = await import("@libsql/client/http");
+  const client = createClient({ url, authToken, intMode: "number" });
+  await client.executeMultiple(loadSchema());
+  await client.execute("PRAGMA foreign_keys = ON");
   return createSql({
-    root: commandExecutor(connection),
+    root: libsqlExecutor(client),
     queued: false,
     transact(fn, bind) {
-      const run = connection.transactionAsync(async (tx: Transaction) => bind(commandExecutor(tx), fn));
-      return run.immediate() as Promise<unknown>;
+      return runLibsqlTransaction(client, fn, bind);
     },
   });
+}
+
+async function runLibsqlTransaction(
+  client: Client,
+  fn: () => Promise<unknown>,
+  bind: (executor: Executor, fn: () => Promise<unknown>) => Promise<unknown>,
+): Promise<unknown> {
+  const tx = await client.transaction("write");
+  try {
+    const result = await bind(libsqlExecutor(tx), fn);
+    await tx.commit();
+    return result;
+  } catch (error) {
+    try {
+      await tx.rollback();
+    } catch {
+      // The transaction is already closed.
+    }
+    throw error;
+  } finally {
+    tx.close();
+  }
 }
 
 function sqliteExecutor(raw: BetterSqlite3.Database): Executor {
@@ -103,19 +123,42 @@ function sqliteExecutor(raw: BetterSqlite3.Database): Executor {
   };
 }
 
-function commandExecutor(command: Connection | Transaction): Executor {
-  const remote = command as Command;
+function libsqlExecutor(session: RemoteSession): Executor {
   return {
-    get: (sql, args) => remote.get(sql, ...args),
-    all: (sql, args) => remote.all(sql, ...args),
+    get: async (sql, args) => {
+      const result = await session.execute({ sql, args: sqlArgs(args) });
+      return plainRows(result)[0];
+    },
+    all: async (sql, args) => {
+      const result = await session.execute({ sql, args: sqlArgs(args) });
+      return plainRows(result);
+    },
     run: async (sql, args) => {
-      const info = await remote.run(sql, ...args);
-      return runResult(info.changes, info.lastInsertRowid);
+      const result = await session.execute({ sql, args: sqlArgs(args) });
+      return runResult(result.rowsAffected, result.lastInsertRowid);
     },
     exec: async (sql) => {
-      await remote.exec(sql);
+      await session.executeMultiple(sql);
     },
   };
+}
+
+function sqlArgs(args: unknown[]): InValue[] {
+  return args.map((value) => (value === undefined ? null : (value as InValue)));
+}
+
+function plainRows(result: ResultSet): Record<string, unknown>[] {
+  return result.rows.map((row) => {
+    const record: Record<string, unknown> = {};
+    for (let i = 0; i < result.columns.length; i += 1) {
+      record[result.columns[i]] = cell(row[i]);
+    }
+    return record;
+  });
+}
+
+function cell(value: Value): unknown {
+  return typeof value === "bigint" ? Number(value) : value;
 }
 
 function runResult(changes: number | undefined, lastInsertRowid: number | bigint | null | undefined): RunResult {
