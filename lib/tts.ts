@@ -64,7 +64,8 @@ export async function attachSpeech(submissionId: number, text: string): Promise<
   try {
     const audio = await synthesizeSpeech(trimmed);
     const relative = saveAudio(`tts/${submissionId}`, "comment.mp3", audio);
-    getDb().prepare("UPDATE review SET tts_audio_path = ? WHERE submission_id = ?").run(relative, submissionId);
+    const db = await getDb();
+    await db.prepare("UPDATE review SET tts_audio_path = ? WHERE submission_id = ?").run(relative, submissionId);
     return null;
   } catch (error) {
     console.error(error);

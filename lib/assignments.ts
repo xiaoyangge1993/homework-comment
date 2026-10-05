@@ -58,9 +58,9 @@ function toSentence(row: SentenceRow): SentenceDTO {
   };
 }
 
-export function listAssignments() {
-  const db = getDb();
-  return db
+export async function listAssignments() {
+  const db = await getDb();
+  return (await db
     .prepare(
       `SELECT a.id, a.title, a.status, a.created_at, c.join_code,
         (SELECT COUNT(*) FROM sentence s WHERE s.assignment_id = a.id) AS sentence_count,
@@ -70,7 +70,7 @@ export function listAssignments() {
       JOIN class c ON c.id = a.class_id
       ORDER BY a.id DESC`,
     )
-    .all() as {
+    .all()) as {
     id: number;
     title: string;
     status: "draft" | "published" | "closed";
@@ -82,48 +82,50 @@ export function listAssignments() {
   }[];
 }
 
-function classId(): number {
-  const row = getDb().prepare("SELECT id FROM class ORDER BY id LIMIT 1").get() as { id: number } | undefined;
+async function classId(): Promise<number> {
+  const db = await getDb();
+  const row = (await db.prepare("SELECT id FROM class ORDER BY id LIMIT 1").get()) as { id: number } | undefined;
   if (!row) {
     throw new AppError(readEnv("TEACHER_PASSWORD") ? "班级数据还没有写好，请重新打开页面" : missingEnvMessage("TEACHER_PASSWORD"));
   }
   return row.id;
 }
 
-export function createAssignment(input: { title: string; textEn: string; textZh: string }): number {
+export async function createAssignment(input: { title: string; textEn: string; textZh: string }): Promise<number> {
   const title = input.title.trim();
   if (!title) throw new AppError("请填写标题");
   const pairs = pairSentences(input.textEn, input.textZh || "");
   if (pairs.length === 0) throw new AppError("没有拆出英文句子。请用句号、问号或感叹号断句。");
-  const db = getDb();
-  const owner = classId();
+  const db = await getDb();
+  const owner = await classId();
   const now = new Date().toISOString();
-  const insert = db.transaction(() => {
-    const info = db
+  return db.transaction(async () => {
+    const info = await db
       .prepare("INSERT INTO assignment (class_id, title, status, created_at) VALUES (?, ?, 'draft', ?)")
       .run(owner, title, now);
     const id = Number(info.lastInsertRowid);
     const sentence = db.prepare(
       "INSERT INTO sentence (assignment_id, idx, text_en, text_zh, reference_audio_path) VALUES (?, ?, ?, ?, NULL)",
     );
-    pairs.forEach((pair, idx) => sentence.run(id, idx, pair.textEn, pair.textZh || null));
+    for (const [idx, pair] of pairs.entries()) {
+      await sentence.run(id, idx, pair.textEn, pair.textZh || null);
+    }
     return id;
   });
-  return insert();
 }
 
-export function getAssignment(id: number): AssignmentDetail {
-  const db = getDb();
-  const row = db
+export async function getAssignment(id: number): Promise<AssignmentDetail> {
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT a.id, a.class_id, a.title, a.status, a.created_at, a.demo_video_path, c.join_code
        FROM assignment a JOIN class c ON c.id = a.class_id WHERE a.id = ?`,
     )
-    .get(id) as AssignmentRow | undefined;
+    .get(id)) as AssignmentRow | undefined;
   if (!row) throw new AppError("找不到作业", 404);
-  const sentences = db
+  const sentences = (await db
     .prepare("SELECT * FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
-    .all(id) as SentenceRow[];
+    .all(id)) as SentenceRow[];
   return {
     id: row.id,
     classId: row.class_id,
@@ -138,11 +140,11 @@ export function getAssignment(id: number): AssignmentDetail {
   };
 }
 
-function draftSentence(sentenceId: number): SentenceRow {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sentence WHERE id = ?").get(sentenceId) as SentenceRow | undefined;
+async function draftSentence(sentenceId: number): Promise<SentenceRow> {
+  const db = await getDb();
+  const row = (await db.prepare("SELECT * FROM sentence WHERE id = ?").get(sentenceId)) as SentenceRow | undefined;
   if (!row) throw new AppError("找不到句子", 404);
-  const assignment = db.prepare("SELECT status FROM assignment WHERE id = ?").get(row.assignment_id) as
+  const assignment = (await db.prepare("SELECT status FROM assignment WHERE id = ?").get(row.assignment_id)) as
     | { status: string }
     | undefined;
   if (!assignment) throw new AppError("找不到作业", 404);
@@ -150,79 +152,81 @@ function draftSentence(sentenceId: number): SentenceRow {
   return row;
 }
 
-function sentenceList(assignmentId: number): SentenceDTO[] {
-  const rows = getDb()
+async function sentenceList(assignmentId: number): Promise<SentenceDTO[]> {
+  const db = await getDb();
+  const rows = (await db
     .prepare("SELECT * FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
-    .all(assignmentId) as SentenceRow[];
+    .all(assignmentId)) as SentenceRow[];
   return rows.map(toSentence);
 }
 
-export function updateSentence(sentenceId: number, textEn: string, textZh: string): SentenceDTO[] {
-  const row = draftSentence(sentenceId);
+export async function updateSentence(sentenceId: number, textEn: string, textZh: string): Promise<SentenceDTO[]> {
+  const row = await draftSentence(sentenceId);
   const english = textEn.trim();
   if (!english) throw new AppError("英文不能为空");
   if (countWords(english) === 0) throw new AppError("这句里没有英文单词");
-  getDb()
-    .prepare("UPDATE sentence SET text_en = ?, text_zh = ? WHERE id = ?")
-    .run(english, textZh.trim() || null, sentenceId);
+  const db = await getDb();
+  await db.prepare("UPDATE sentence SET text_en = ?, text_zh = ? WHERE id = ?").run(english, textZh.trim() || null, sentenceId);
   return sentenceList(row.assignment_id);
 }
 
-export function mergeWithNext(sentenceId: number): SentenceDTO[] {
-  const row = draftSentence(sentenceId);
-  const db = getDb();
-  const next = db
+export async function mergeWithNext(sentenceId: number): Promise<SentenceDTO[]> {
+  const row = await draftSentence(sentenceId);
+  const db = await getDb();
+  const next = (await db
     .prepare("SELECT * FROM sentence WHERE assignment_id = ? AND idx = ?")
-    .get(row.assignment_id, row.idx + 1) as SentenceRow | undefined;
+    .get(row.assignment_id, row.idx + 1)) as SentenceRow | undefined;
   if (!next) throw new AppError("没有下一句可以合并");
-  const run = db.transaction(() => {
-    db.prepare("UPDATE sentence SET text_en = ?, text_zh = ? WHERE id = ?").run(
+  await db.transaction(async () => {
+    await db.prepare("UPDATE sentence SET text_en = ?, text_zh = ? WHERE id = ?").run(
       mergeText(row.text_en, next.text_en),
       mergeText(row.text_zh ?? "", next.text_zh ?? "") || null,
       row.id,
     );
-    db.prepare("DELETE FROM sentence WHERE id = ?").run(next.id);
-    reindex(row.assignment_id);
+    await db.prepare("DELETE FROM sentence WHERE id = ?").run(next.id);
+    await reindex(row.assignment_id);
   });
-  run();
   return sentenceList(row.assignment_id);
 }
 
-export function splitSentence(sentenceId: number): SentenceDTO[] {
-  const row = draftSentence(sentenceId);
+export async function splitSentence(sentenceId: number): Promise<SentenceDTO[]> {
+  const row = await draftSentence(sentenceId);
   const parts = splitOnce(row.text_en);
   if (!parts) throw new AppError("这句太短，没法拆开");
   const gloss = splitChineseOnce(row.text_zh ?? "");
-  const db = getDb();
-  const run = db.transaction(() => {
-    db.prepare("UPDATE sentence SET idx = idx + 1000 WHERE assignment_id = ? AND idx > ?").run(
+  const db = await getDb();
+  await db.transaction(async () => {
+    await db.prepare("UPDATE sentence SET idx = idx + 1000 WHERE assignment_id = ? AND idx > ?").run(
       row.assignment_id,
       row.idx,
     );
-    db.prepare("UPDATE sentence SET text_en = ?, text_zh = ? WHERE id = ?").run(parts[0], gloss[0] || null, row.id);
-    db.prepare(
-      "INSERT INTO sentence (assignment_id, idx, text_en, text_zh, reference_audio_path) VALUES (?, ?, ?, ?, NULL)",
-    ).run(row.assignment_id, row.idx + 1, parts[1], gloss[1] || null);
-    reindex(row.assignment_id);
+    await db.prepare("UPDATE sentence SET text_en = ?, text_zh = ? WHERE id = ?").run(parts[0], gloss[0] || null, row.id);
+    await db
+      .prepare(
+        "INSERT INTO sentence (assignment_id, idx, text_en, text_zh, reference_audio_path) VALUES (?, ?, ?, ?, NULL)",
+      )
+      .run(row.assignment_id, row.idx + 1, parts[1], gloss[1] || null);
+    await reindex(row.assignment_id);
   });
-  run();
   return sentenceList(row.assignment_id);
 }
 
-function reindex(assignmentId: number) {
-  const db = getDb();
-  const rows = db
+async function reindex(assignmentId: number) {
+  const db = await getDb();
+  const rows = (await db
     .prepare("SELECT id FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
-    .all(assignmentId) as { id: number }[];
+    .all(assignmentId)) as { id: number }[];
   const update = db.prepare("UPDATE sentence SET idx = ? WHERE id = ?");
-  rows.forEach((row, index) => update.run(index, row.id));
+  for (const [index, row] of rows.entries()) {
+    await update.run(index, row.id);
+  }
 }
 
 export async function saveDemoVideo(
   assignmentId: number,
   file: { name: string; type: string; bytes: Buffer },
 ): Promise<void> {
-  const detail = getAssignment(assignmentId);
+  const detail = await getAssignment(assignmentId);
   if (detail.status !== "draft") throw new AppError("发布后不能再换布置视频");
   const stored = await acceptVideoUpload({
     subdir: `demo/${assignmentId}`,
@@ -245,7 +249,8 @@ export async function saveDemoVideo(
     fsUnlink(stored.absolute);
     throw new AppError("抽不出布置视频的音轨");
   }
-  getDb()
+  const db = await getDb();
+  await db
     .prepare("UPDATE assignment SET demo_video_path = ?, demo_audio_path = ? WHERE id = ?")
     .run(stored.relative, audioRelative, assignmentId);
 }
@@ -258,25 +263,26 @@ function fsUnlink(file: string) {
   }
 }
 
-export function setReferenceAudio(assignmentId: number, sentenceId: number, relativePath: string) {
-  const row = draftSentence(sentenceId);
+export async function setReferenceAudio(assignmentId: number, sentenceId: number, relativePath: string) {
+  const row = await draftSentence(sentenceId);
   if (row.assignment_id !== assignmentId) throw new AppError("句子不属于这份作业");
-  getDb().prepare("UPDATE sentence SET reference_audio_path = ? WHERE id = ?").run(relativePath, sentenceId);
+  const db = await getDb();
+  await db.prepare("UPDATE sentence SET reference_audio_path = ? WHERE id = ?").run(relativePath, sentenceId);
 }
 
-function makeJoinCode(): string {
-  const db = getDb();
+async function makeJoinCode(): Promise<string> {
+  const db = await getDb();
   for (let attempt = 0; attempt < 20; attempt++) {
     const bytes = randomBytes(6);
     const code = Array.from(bytes, (byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join("");
-    const taken = db.prepare("SELECT id FROM class WHERE join_code = ?").get(code);
+    const taken = await db.prepare("SELECT id FROM class WHERE join_code = ?").get(code);
     if (!taken) return code;
   }
   throw new AppError("班级码暂时生成不了，请再试一次");
 }
 
-export function publishAssignment(id: number): { joinCode: string } {
-  const detail = getAssignment(id);
+export async function publishAssignment(id: number): Promise<{ joinCode: string }> {
+  const detail = await getAssignment(id);
   if (detail.status !== "draft") throw new AppError("只有草稿可以发布");
   if (detail.sentences.length === 0) throw new AppError("还没有句子");
   if (!detail.hasDemoVideo) throw new AppError("请先上传或录制布置视频");
@@ -286,37 +292,40 @@ export function publishAssignment(id: number): { joinCode: string } {
       throw new AppError(`第 ${sentence.idx + 1} 句超过 ${limits.maxWordsPerSentence} 个词，请先拆开`);
     }
   }
-  const db = getDb();
+  const db = await getDb();
   let joinCode = detail.joinCode;
   if (!joinCode) {
-    joinCode = makeJoinCode();
-    db.prepare("UPDATE class SET join_code = ? WHERE id = ?").run(joinCode, detail.classId);
+    joinCode = await makeJoinCode();
+    await db.prepare("UPDATE class SET join_code = ? WHERE id = ?").run(joinCode, detail.classId);
   }
-  db.prepare("UPDATE assignment SET status = 'published' WHERE id = ?").run(id);
+  await db.prepare("UPDATE assignment SET status = 'published' WHERE id = ?").run(id);
   return { joinCode };
 }
 
-export function closeAssignment(id: number) {
-  const detail = getAssignment(id);
+export async function closeAssignment(id: number) {
+  const detail = await getAssignment(id);
   if (detail.status !== "published") throw new AppError("只有已发布的作业可以结束");
-  getDb().prepare("UPDATE assignment SET status = 'closed' WHERE id = ?").run(id);
+  const db = await getDb();
+  await db.prepare("UPDATE assignment SET status = 'closed' WHERE id = ?").run(id);
 }
 
-export function demoVideoPath(assignmentId: number): { path: string; classId: number } | null {
-  const row = getDb()
+export async function demoVideoPath(assignmentId: number): Promise<{ path: string; classId: number } | null> {
+  const db = await getDb();
+  const row = (await db
     .prepare("SELECT demo_video_path AS path, class_id AS classId FROM assignment WHERE id = ?")
-    .get(assignmentId) as { path: string | null; classId: number } | undefined;
+    .get(assignmentId)) as { path: string | null; classId: number } | undefined;
   if (!row?.path) return null;
   return { path: row.path, classId: row.classId };
 }
 
-export function referenceAudioPath(sentenceId: number): { path: string; classId: number } | null {
-  const row = getDb()
+export async function referenceAudioPath(sentenceId: number): Promise<{ path: string; classId: number } | null> {
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT s.reference_audio_path AS path, a.class_id AS classId
        FROM sentence s JOIN assignment a ON a.id = s.assignment_id WHERE s.id = ?`,
     )
-    .get(sentenceId) as { path: string | null; classId: number } | undefined;
+    .get(sentenceId)) as { path: string | null; classId: number } | undefined;
   if (!row?.path) return null;
   return { path: row.path, classId: row.classId };
 }

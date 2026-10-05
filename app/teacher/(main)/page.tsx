@@ -1,4 +1,5 @@
 import { listAssignments } from "@/lib/assignments";
+import { AppError } from "@/lib/errors";
 import { referenceHint } from "@/lib/reference-hint";
 
 function hintSuffix(sentenceCount: number, missingReference: number, hasDemoVideo: boolean): string {
@@ -12,8 +13,14 @@ const statusLabel = {
   closed: "已结束",
 } as const;
 
-export default function TeacherHomePage() {
-  const assignments = listAssignments();
+export default async function TeacherHomePage() {
+  let assignments;
+  try {
+    assignments = await listAssignments();
+  } catch (error) {
+    if (error instanceof AppError) return <p className="error">{error.message}</p>;
+    throw error;
+  }
   return (
     <>
       <div className="sentence-head">

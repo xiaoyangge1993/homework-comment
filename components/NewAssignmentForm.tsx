@@ -1,12 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { limits } from "@/lib/config";
 import { countWords, pairSentences } from "@/lib/sentences";
 
 export function NewAssignmentForm() {
-  const router = useRouter();
   const [title, setTitle] = useState("");
   const [textEn, setTextEn] = useState("");
   const [textZh, setTextZh] = useState("");
@@ -26,8 +24,7 @@ export function NewAssignmentForm() {
       });
       const body = (await response.json()) as { id?: number; error?: string };
       if (!response.ok || !body.id) throw new Error(body.error || "创建失败");
-      router.push(`/teacher/assignments/${body.id}`);
-      router.refresh();
+      window.location.assign(`/teacher/assignments/${body.id}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建失败");
       setPending(false);

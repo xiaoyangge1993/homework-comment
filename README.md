@@ -29,6 +29,8 @@ cp .env.example .env.local
 | --- | --- |
 | `TEACHER_PASSWORD` | 老师登录密码。第一次启动时写入数据库。之后改这个值不会改掉已经写入的密码；要重设，先停掉服务，删除 `data/app.db`，再启动。 |
 | `SESSION_SECRET` | 给老师和学生的登录票据签名。用一长串随机字符。 |
+| `TURSO_DATABASE_URL` | 线上 Turso 数据库地址，形如 `libsql://….turso.io`。本地不填则用 `data/app.db`。Vercel 上必填。 |
+| `TURSO_AUTH_TOKEN` | Turso 数据库令牌。和上面的地址成对填写。 |
 | `TENCENT_SECRET_ID` | 腾讯云 SecretId。智聆和语音合成都用它。 |
 | `TENCENT_SECRET_KEY` | 腾讯云 SecretKey。 |
 | `TENCENT_SOE_APPID` | 智聆 WebSocket 路径里的 AppId。三个腾讯云评测字段缺一个，评测就不可用。 |
@@ -57,7 +59,17 @@ npm run build
 npm start
 ```
 
-`npm start` 会读取服务器上的 `.env.local`。部署到 Vercel 时这个文件不在仓库里，也不会上传。请在 Vercel 项目的 Settings → Environment Variables 中设置 `TEACHER_PASSWORD` 和 `SESSION_SECRET`（评测和语音合成还需要腾讯云那几项），环境勾选 Production，然后重新部署。只改本地 `.env.local` 不会让线上登录成功。Vercel 的函数目录是只读的，数据库和录音会写到该实例的 `/tmp`，实例回收后这些数据不会保留。
+`npm start` 会读取服务器上的 `.env.local`。部署到 Vercel 时这个文件不在仓库里，也不会上传。请在 Vercel 项目的 Settings → Environment Variables 中设置 `TEACHER_PASSWORD`、`SESSION_SECRET`、`TURSO_DATABASE_URL` 和 `TURSO_AUTH_TOKEN`（评测和语音合成还需要腾讯云那几项），环境勾选 Production，然后重新部署。只改本地 `.env.local` 不会让线上登录成功。
+
+Turso 数据库：
+
+```bash
+turso db create homework-comment
+turso db show homework-comment --url
+turso db tokens create homework-comment
+```
+
+把 `--url` 的结果填进 `TURSO_DATABASE_URL`，令牌填进 `TURSO_AUTH_TOKEN`。Vercel 上没有这两个值时，页面会提示去设置，不会再把作业写进某个实例的临时文件。录音和视频仍写在实例磁盘上，实例回收后文件不保留。
 
 音频在 `data/audio/`，原视频在 `data/video/`，数据库在 `data/app.db`。数据库只存相对路径。这些目录不要提交。
 

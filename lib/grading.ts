@@ -25,24 +25,24 @@ type AttemptRow = {
 };
 
 export async function gradeAttempt(attemptId: number): Promise<void> {
-  const db = getDb();
-  const row = db
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT a.id, a.audio_path, a.video_path, a.submission_id, a.sentence_id, s.text_en, s.reference_audio_path
        FROM sentence_attempt a JOIN sentence s ON s.id = a.sentence_id WHERE a.id = ?`,
     )
-    .get(attemptId) as AttemptRow | undefined;
+    .get(attemptId)) as AttemptRow | undefined;
   if (!row) return;
 
   let audioRelative = row.audio_path;
   if (row.video_path && !isPcm16k(audioRelative)) {
     const extracted = await extractAttemptAudio(attemptId, row.video_path);
     if (!extracted.ok) {
-      writeGrade(attemptId, row.submission_id, null, { error: extracted.error }, null, null, null);
+      await writeGrade(attemptId, row.submission_id, null, { error: extracted.error }, null, null, null);
       return;
     }
     audioRelative = extracted.path;
-    db.prepare("UPDATE sentence_attempt SET audio_path = ? WHERE id = ?").run(audioRelative, attemptId);
+    await db.prepare("UPDATE sentence_attempt SET audio_path = ? WHERE id = ?").run(audioRelative, attemptId);
   }
 
   const rhythm = audioRelative ? await measureRhythm(audioRelative, row.reference_audio_path) : null;
@@ -86,10 +86,10 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
     }
   }
 
-  writeGrade(attemptId, row.submission_id, rhythm, raw, accuracy, fluency, completion);
+  await writeGrade(attemptId, row.submission_id, rhythm, raw, accuracy, fluency, completion);
 }
 
-function writeGrade(
+async function writeGrade(
   attemptId: number,
   submissionId: number,
   rhythm: RhythmLabel | null,
@@ -98,10 +98,11 @@ function writeGrade(
   fluency: number | null,
   completion: number | null,
 ) {
-  getDb()
+  const db = await getDb();
+  await db
     .prepare("UPDATE sentence_attempt SET accuracy = ?, fluency = ?, completion = ?, rhythm = ?, raw_json = ? WHERE id = ?")
     .run(accuracy, fluency, completion, rhythm, JSON.stringify(raw), attemptId);
-  syncDraft(submissionId);
+  await syncDraft(submissionId);
 }
 
 function isPcm16k(relative: string | null): boolean {
@@ -150,28 +151,29 @@ async function measureRhythm(studentPath: string, referencePath: string | null):
   return classifyRhythm(studentDuration, teacherDuration, pause);
 }
 
-export function syncDraft(submissionId: number) {
-  const db = getDb();
-  const submission = db.prepare("SELECT assignment_id, status FROM submission WHERE id = ?").get(submissionId) as
+export async function syncDraft(submissionId: number) {
+  const db = await getDb();
+  const submission = (await db.prepare("SELECT assignment_id, status FROM submission WHERE id = ?").get(submissionId)) as
     | { assignment_id: number; status: SubmissionStatus }
     | undefined;
   if (!submission || submission.status !== "submitted") return;
-  const existing = db.prepare("SELECT decision FROM review WHERE submission_id = ?").get(submissionId) as
+  const existing = (await db.prepare("SELECT decision FROM review WHERE submission_id = ?").get(submissionId)) as
     | { decision: string | null }
     | undefined;
   if (existing?.decision) return;
-  const sentences = db
+  const sentences = (await db
     .prepare("SELECT id, idx FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
-    .all(submission.assignment_id) as { id: number; idx: number }[];
-  const draftSentences: DraftSentence[] = sentences.map((sentence) => {
-    const attempt = db
+    .all(submission.assignment_id)) as { id: number; idx: number }[];
+  const draftSentences: DraftSentence[] = [];
+  for (const sentence of sentences) {
+    const attempt = (await db
       .prepare(
         `SELECT accuracy, rhythm, raw_json FROM sentence_attempt
          WHERE submission_id = ? AND sentence_id = ? ORDER BY id DESC LIMIT 1`,
       )
-      .get(submissionId, sentence.id) as { accuracy: number | null; rhythm: RhythmLabel | null; raw_json: string | null } | undefined;
+      .get(submissionId, sentence.id)) as { accuracy: number | null; rhythm: RhythmLabel | null; raw_json: string | null } | undefined;
     const words = wordsOf(attempt?.raw_json ?? null);
-    return {
+    draftSentences.push({
       index: sentence.idx + 1,
       accuracy: attempt?.accuracy ?? null,
       evaluated: attempt?.accuracy != null,
@@ -179,25 +181,28 @@ export function syncDraft(submissionId: number) {
       wrong: words.filter((word) => word.matchTag === 3).map((word) => ({ word: word.word, phone: word.phones[0]?.phone })),
       unlisted: words.filter((word) => word.matchTag === 4).map((word) => word.word),
       rhythm: attempt?.rhythm ?? null,
-    };
-  });
+    });
+  }
   const draft = buildDraft(draftSentences);
   if (!existing) {
-    db.prepare(
-      "INSERT INTO review (submission_id, draft_text, final_text, tts_audio_path, decision, sentence_ids_returned) VALUES (?, ?, NULL, NULL, NULL, NULL)",
-    ).run(submissionId, draft);
+    await db
+      .prepare(
+        "INSERT INTO review (submission_id, draft_text, final_text, tts_audio_path, decision, sentence_ids_returned) VALUES (?, ?, NULL, NULL, NULL, NULL)",
+      )
+      .run(submissionId, draft);
   } else {
-    db.prepare("UPDATE review SET draft_text = ? WHERE submission_id = ?").run(draft, submissionId);
+    await db.prepare("UPDATE review SET draft_text = ? WHERE submission_id = ?").run(draft, submissionId);
   }
 }
 
-export function assertRetry(attemptId: number, studentId: number) {
-  const row = getDb()
+export async function assertRetry(attemptId: number, studentId: number) {
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT s.student_id AS studentId, s.status AS status
        FROM sentence_attempt a JOIN submission s ON s.id = a.submission_id WHERE a.id = ?`,
     )
-    .get(attemptId) as { studentId: number; status: SubmissionStatus } | undefined;
+    .get(attemptId)) as { studentId: number; status: SubmissionStatus } | undefined;
   if (!row || row.studentId !== studentId) throw new AppError("找不到这句录音", 404);
   if (row.status === "accepted") throw new AppError("老师已经通过，不能再评测");
 }

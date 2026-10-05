@@ -1,6 +1,7 @@
 import { JoinForm } from "@/components/JoinForm";
 import { LogoutButton } from "@/components/LogoutButton";
 import { getStudentSession } from "@/lib/auth";
+import { AppError } from "@/lib/errors";
 import { listOpenAssignments } from "@/lib/submissions";
 
 export default async function JoinPage({
@@ -35,8 +36,14 @@ export default async function JoinPage({
   );
 }
 
-function AssignmentList({ classId }: { classId: number }) {
-  const assignments = listOpenAssignments(classId);
+async function AssignmentList({ classId }: { classId: number }) {
+  let assignments;
+  try {
+    assignments = await listOpenAssignments(classId);
+  } catch (error) {
+    if (error instanceof AppError) return <p className="error">{error.message}</p>;
+    throw error;
+  }
   if (assignments.length === 0) return <p className="muted">这个班还没有已发布的作业。</p>;
   return (
     <div className="stack">

@@ -8,7 +8,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   try {
     await requireTeacher();
     const { id } = await context.params;
-    const detail = getAssignment(Number(id));
+    const detail = await getAssignment(Number(id));
     return Response.json(detail);
   } catch (error) {
     return errorResponse(error);

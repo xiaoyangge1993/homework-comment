@@ -6,38 +6,41 @@ import type { AttemptView, RhythmLabel, StudentAssignmentView, SubmissionStatus 
 
 type StudentRow = { id: number; class_id: number; display_name: string };
 
-export function joinStudent(code: string, name: string, confirm: boolean):
-  | { needConfirm: true; displayName: string }
-  | { studentId: number; classId: number; displayName: string } {
+export async function joinStudent(
+  code: string,
+  name: string,
+  confirm: boolean,
+): Promise<{ needConfirm: true; displayName: string } | { studentId: number; classId: number; displayName: string }> {
   const joinCode = code.trim().toUpperCase();
   const displayName = name.trim();
   if (!joinCode) throw new AppError("请填写班级码");
   if (!displayName) throw new AppError("请填写姓名");
   if (displayName.length > 20) throw new AppError("姓名请控制在 20 个字以内");
-  const db = getDb();
-  const cls = db.prepare("SELECT id FROM class WHERE join_code = ?").get(joinCode) as { id: number } | undefined;
+  const db = await getDb();
+  const cls = (await db.prepare("SELECT id FROM class WHERE join_code = ?").get(joinCode)) as { id: number } | undefined;
   if (!cls) throw new AppError("班级码不对");
-  const existing = db
+  const existing = (await db
     .prepare(
       `SELECT id, class_id, display_name FROM student
        WHERE class_id = ? AND display_name = ?
        ORDER BY COALESCE((SELECT MAX(updated_at) FROM submission WHERE student_id = student.id), '') DESC, id DESC
        LIMIT 1`,
     )
-    .get(cls.id, displayName) as StudentRow | undefined;
+    .get(cls.id, displayName)) as StudentRow | undefined;
   if (existing && !confirm) return { needConfirm: true, displayName };
   if (existing && confirm) return { studentId: existing.id, classId: existing.class_id, displayName };
-  const info = db.prepare("INSERT INTO student (class_id, display_name) VALUES (?, ?)").run(cls.id, displayName);
+  const info = await db.prepare("INSERT INTO student (class_id, display_name) VALUES (?, ?)").run(cls.id, displayName);
   return { studentId: Number(info.lastInsertRowid), classId: cls.id, displayName };
 }
 
-export function listOpenAssignments(classId: number) {
-  return getDb()
+export async function listOpenAssignments(classId: number) {
+  const db = await getDb();
+  return (await db
     .prepare(
       `SELECT id, title, status, created_at FROM assignment
        WHERE class_id = ? AND status = 'published' ORDER BY id DESC`,
     )
-    .all(classId) as { id: number; title: string; status: string; created_at: string }[];
+    .all(classId)) as { id: number; title: string; status: string; created_at: string }[];
 }
 
 function parseReturned(value: string | null): number[] {
@@ -51,31 +54,35 @@ function parseReturned(value: string | null): number[] {
   }
 }
 
-export function getStudentAssignment(assignmentId: number, studentId: number, classId: number): StudentAssignmentView {
-  const db = getDb();
-  const assignment = db
+export async function getStudentAssignment(
+  assignmentId: number,
+  studentId: number,
+  classId: number,
+): Promise<StudentAssignmentView> {
+  const db = await getDb();
+  const assignment = (await db
     .prepare("SELECT id, title, status, class_id, demo_video_path FROM assignment WHERE id = ?")
-    .get(assignmentId) as
+    .get(assignmentId)) as
     | { id: number; title: string; status: string; class_id: number; demo_video_path: string | null }
     | undefined;
   if (!assignment || assignment.class_id !== classId) throw new AppError("找不到作业", 404);
   if (assignment.status === "draft") throw new AppError("作业还没发布", 404);
-  const sentences = db
+  const sentences = (await db
     .prepare("SELECT id, idx, text_en, text_zh, reference_audio_path FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
-    .all(assignmentId) as {
+    .all(assignmentId)) as {
     id: number;
     idx: number;
     text_en: string;
     text_zh: string | null;
     reference_audio_path: string | null;
   }[];
-  const submission = db
+  const submission = (await db
     .prepare("SELECT id, status FROM submission WHERE assignment_id = ? AND student_id = ?")
-    .get(assignmentId, studentId) as { id: number; status: SubmissionStatus } | undefined;
+    .get(assignmentId, studentId)) as { id: number; status: SubmissionStatus } | undefined;
   const review = submission
-    ? (db
+    ? ((await db
         .prepare("SELECT draft_text, final_text, decision, tts_audio_path, sentence_ids_returned FROM review WHERE submission_id = ?")
-        .get(submission.id) as
+        .get(submission.id)) as
         | {
             draft_text: string | null;
             final_text: string | null;
@@ -87,12 +94,12 @@ export function getStudentAssignment(assignmentId: number, studentId: number, cl
     : undefined;
   const attempts = new Map<number, AttemptView>();
   if (submission) {
-    const rows = db
+    const rows = (await db
       .prepare(
         `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at
          FROM sentence_attempt WHERE submission_id = ? ORDER BY id DESC`,
       )
-      .all(submission.id) as {
+      .all(submission.id)) as {
       id: number;
       sentence_id: number;
       audio_path: string | null;
@@ -160,29 +167,29 @@ export function canRecordSentence(view: StudentAssignmentView, sentenceId: numbe
   return false;
 }
 
-export function createAttempt(input: {
+export async function createAttempt(input: {
   studentId: number;
   classId: number;
   assignmentId: number;
   sentenceId: number;
   audioPath: string | null;
   videoPath?: string | null;
-}): { attemptId: number; submissionId: number } {
-  const view = getStudentAssignment(input.assignmentId, input.studentId, input.classId);
+}): Promise<{ attemptId: number; submissionId: number }> {
+  const view = await getStudentAssignment(input.assignmentId, input.studentId, input.classId);
   if (!canRecordSentence(view, input.sentenceId)) throw new AppError("这句现在不能重录");
   const sentence = view.sentences.find((item) => item.id === input.sentenceId);
   if (!sentence) throw new AppError("找不到句子", 404);
-  const db = getDb();
+  const db = await getDb();
   const now = new Date().toISOString();
-  const run = db.transaction(() => {
+  return db.transaction(async () => {
     let submissionId = view.submission?.id;
     if (!submissionId) {
-      const info = db
+      const info = await db
         .prepare("INSERT INTO submission (assignment_id, student_id, status, updated_at) VALUES (?, ?, 'partial', ?)")
         .run(input.assignmentId, input.studentId, now);
       submissionId = Number(info.lastInsertRowid);
     }
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO sentence_attempt
           (submission_id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at)
@@ -191,91 +198,94 @@ export function createAttempt(input: {
       .run(submissionId, input.sentenceId, input.audioPath, input.videoPath ?? null, now);
     if (view.submission?.status === "returned") {
       const remaining = view.submission.returnedSentenceIds.filter((id) => id !== input.sentenceId);
-      db.prepare("UPDATE review SET sentence_ids_returned = ?, decision = ? WHERE submission_id = ?").run(
+      await db.prepare("UPDATE review SET sentence_ids_returned = ?, decision = ? WHERE submission_id = ?").run(
         JSON.stringify(remaining),
         remaining.length === 0 ? null : "returned",
         submissionId,
       );
     }
-    refreshSubmission(submissionId, view.sentences.length);
+    await refreshSubmission(submissionId, view.sentences.length);
     return { attemptId: Number(info.lastInsertRowid), submissionId };
   });
-  return run();
 }
 
-function refreshSubmission(submissionId: number, sentenceCount: number) {
-  const db = getDb();
-  const submission = db.prepare("SELECT status FROM submission WHERE id = ?").get(submissionId) as
+async function refreshSubmission(submissionId: number, sentenceCount: number) {
+  const db = await getDb();
+  const submission = (await db.prepare("SELECT status FROM submission WHERE id = ?").get(submissionId)) as
     | { status: SubmissionStatus }
     | undefined;
   if (!submission || submission.status === "accepted") return;
-  const review = db
+  const review = (await db
     .prepare("SELECT decision, sentence_ids_returned FROM review WHERE submission_id = ?")
-    .get(submissionId) as { decision: string | null; sentence_ids_returned: string | null } | undefined;
+    .get(submissionId)) as { decision: string | null; sentence_ids_returned: string | null } | undefined;
   if (submission.status === "returned" && review?.decision === "returned") {
-    db.prepare("UPDATE submission SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), submissionId);
+    await db.prepare("UPDATE submission SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), submissionId);
     return;
   }
-  const covered = db
+  const covered = (await db
     .prepare("SELECT COUNT(DISTINCT sentence_id) AS count FROM sentence_attempt WHERE submission_id = ?")
-    .get(submissionId) as { count: number };
+    .get(submissionId)) as { count: number };
   const status: SubmissionStatus = covered.count >= sentenceCount && sentenceCount > 0 ? "submitted" : "partial";
-  db.prepare("UPDATE submission SET status = ?, updated_at = ? WHERE id = ?").run(status, new Date().toISOString(), submissionId);
+  await db.prepare("UPDATE submission SET status = ?, updated_at = ? WHERE id = ?").run(status, new Date().toISOString(), submissionId);
 }
 
-export function attemptVideo(attemptId: number): { path: string; studentId: number } | null {
-  const row = getDb()
+export async function attemptVideo(attemptId: number): Promise<{ path: string; studentId: number } | null> {
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT a.video_path AS path, s.student_id AS studentId
        FROM sentence_attempt a JOIN submission s ON s.id = a.submission_id WHERE a.id = ?`,
     )
-    .get(attemptId) as { path: string | null; studentId: number } | undefined;
+    .get(attemptId)) as { path: string | null; studentId: number } | undefined;
   if (!row?.path) return null;
   return { path: row.path, studentId: row.studentId };
 }
 
-export function attemptAudio(attemptId: number): { path: string; studentId: number } | null {
-  const row = getDb()
+export async function attemptAudio(attemptId: number): Promise<{ path: string; studentId: number } | null> {
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT a.audio_path AS path, s.student_id AS studentId
        FROM sentence_attempt a JOIN submission s ON s.id = a.submission_id WHERE a.id = ?`,
     )
-    .get(attemptId) as { path: string; studentId: number } | undefined;
+    .get(attemptId)) as { path: string; studentId: number } | undefined;
   if (!row?.path) return null;
   return row;
 }
 
-export function reviewAudio(submissionId: number): { path: string; studentId: number } | null {
-  const row = getDb()
+export async function reviewAudio(submissionId: number): Promise<{ path: string; studentId: number } | null> {
+  const db = await getDb();
+  const row = (await db
     .prepare(
       `SELECT r.tts_audio_path AS path, s.student_id AS studentId
        FROM review r JOIN submission s ON s.id = r.submission_id WHERE r.submission_id = ?`,
     )
-    .get(submissionId) as { path: string | null; studentId: number } | undefined;
+    .get(submissionId)) as { path: string | null; studentId: number } | undefined;
   if (!row?.path) return null;
   return { path: row.path, studentId: row.studentId };
 }
 
-export function mySubmissions(studentId: number, assignmentId?: number) {
-  const db = getDb();
-  const rows = db
+export async function mySubmissions(studentId: number, assignmentId?: number) {
+  const db = await getDb();
+  const rows = (await db
     .prepare(
       `SELECT s.id, s.assignment_id, s.status, s.updated_at, a.title
        FROM submission s JOIN assignment a ON a.id = s.assignment_id
        WHERE s.student_id = ? AND (? IS NULL OR s.assignment_id = ?)
        ORDER BY s.updated_at DESC`,
     )
-    .all(studentId, assignmentId ?? null, assignmentId ?? null) as {
+    .all(studentId, assignmentId ?? null, assignmentId ?? null)) as {
     id: number;
     assignment_id: number;
     status: SubmissionStatus;
     updated_at: string;
     title: string;
   }[];
-  return rows.map((row) => {
-    const student = db.prepare("SELECT class_id FROM student WHERE id = ?").get(studentId) as { class_id: number };
-    const detail = getStudentAssignment(row.assignment_id, studentId, student.class_id);
-    return {
+  const result = [];
+  for (const row of rows) {
+    const student = (await db.prepare("SELECT class_id FROM student WHERE id = ?").get(studentId)) as { class_id: number };
+    const detail = await getStudentAssignment(row.assignment_id, studentId, student.class_id);
+    result.push({
       submissionId: row.id,
       assignmentId: row.assignment_id,
       title: row.title,
@@ -295,6 +305,7 @@ export function mySubmissions(studentId: number, assignmentId?: number) {
         audioUrl: sentence.attempt?.audioUrl ?? null,
         videoUrl: sentence.attempt?.videoUrl ?? null,
       })),
-    };
-  });
+    });
+  }
+  return result;
 }

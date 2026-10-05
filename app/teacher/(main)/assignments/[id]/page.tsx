@@ -3,11 +3,9 @@ import { notFound } from "next/navigation";
 import { PassButton } from "@/components/PassButton";
 import { ReviewPanel } from "@/components/ReviewPanel";
 import { SentenceEditor } from "@/components/SentenceEditor";
-import { getAssignment } from "@/lib/assignments";
+import { getAssignment, type AssignmentDetail } from "@/lib/assignments";
 import { AppError } from "@/lib/errors";
 import { referenceHint } from "@/lib/reference-hint";
-import { loadBoard, loadReview } from "@/lib/review";
-import { ttsConfigured } from "@/lib/tts";
 
 export default async function AssignmentPage({
   params,
@@ -22,9 +20,10 @@ export default async function AssignmentPage({
   if (!Number.isInteger(numericId)) notFound();
   let detail;
   try {
-    detail = getAssignment(numericId);
+    detail = await getAssignment(numericId);
   } catch (error) {
     if (error instanceof AppError && error.status === 404) notFound();
+    if (error instanceof AppError) return <p className="error">{error.message}</p>;
     throw error;
   }
 
@@ -72,7 +71,7 @@ export default async function AssignmentPage({
   );
 }
 
-function ReferenceHint({ detail }: { detail: ReturnType<typeof getAssignment> }) {
+function ReferenceHint({ detail }: { detail: AssignmentDetail }) {
   const hint = referenceHint({
     sentenceCount: detail.sentences.length,
     missingReference: detail.sentences.filter((sentence) => !sentence.referenceUrl).length,
@@ -81,8 +80,9 @@ function ReferenceHint({ detail }: { detail: ReturnType<typeof getAssignment> })
   return <p className={hint === "每句都有标准音" ? "ok" : "warn"}>{hint}</p>;
 }
 
-function ClassBoard({ assignmentId }: { assignmentId: number }) {
-  const board = loadBoard(assignmentId);
+async function ClassBoard({ assignmentId }: { assignmentId: number }) {
+  const { loadBoard } = await import("@/lib/review");
+  const board = await loadBoard(assignmentId);
   return (
     <div className="grade-surface">
       <div className="stats">
@@ -156,13 +156,16 @@ function ClassBoard({ assignmentId }: { assignmentId: number }) {
   );
 }
 
-function TeacherReview({ assignmentId, submissionId }: { assignmentId: number; submissionId: number }) {
+async function TeacherReview({ assignmentId, submissionId }: { assignmentId: number; submissionId: number }) {
   if (!Number.isInteger(submissionId)) notFound();
+  const { loadReview } = await import("@/lib/review");
+  const { ttsConfigured } = await import("@/lib/tts");
   let review;
   try {
-    review = loadReview(assignmentId, submissionId);
+    review = await loadReview(assignmentId, submissionId);
   } catch (error) {
     if (error instanceof AppError && error.status === 404) notFound();
+    if (error instanceof AppError) return <p className="error">{error.message}</p>;
     throw error;
   }
   return (

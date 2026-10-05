@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   try {
     await requireTeacher();
     const body = (await request.json()) as { title?: string; textEn?: string; textZh?: string };
-    const id = createAssignment({
+    const id = await createAssignment({
       title: body.title ?? "",
       textEn: body.textEn ?? "",
       textZh: body.textZh ?? "",

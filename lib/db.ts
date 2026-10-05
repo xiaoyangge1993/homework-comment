@@ -3,13 +3,23 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
+import { connect, type Connection, type Transaction } from "@tursodatabase/serverless";
 import { resolveDataDir } from "./data-dir";
 import { AppError } from "./errors";
 import { readEnv } from "./env";
 import { hashPassword } from "./password";
+import { createSql, type Executor, type RunResult, type Sql } from "./sql";
+import { tursoConfig } from "./turso-config";
 
-const globalForDb = globalThis as unknown as { homeworkDb?: Database.Database; homeworkDataDir?: string };
+const globalForDb = globalThis as unknown as { homeworkDb?: Promise<Sql>; homeworkDataDir?: string };
 let videoColumnsReady = false;
+
+type Command = {
+  get(sql: string, ...args: unknown[]): Promise<unknown>;
+  all(sql: string, ...args: unknown[]): Promise<unknown[]>;
+  run(sql: string, ...args: unknown[]): Promise<{ changes?: number; lastInsertRowid?: number | bigint | null }>;
+  exec(sql: string): Promise<unknown>;
+};
 
 export function dataDir(): string {
   if (!globalForDb.homeworkDataDir) {
@@ -27,38 +37,99 @@ function loadSchema(): string {
   }
 }
 
-export function getDb(): Database.Database {
+export function getDb(): Promise<Sql> {
   if (!globalForDb.homeworkDb) {
-    const dir = dataDir();
-    fs.mkdirSync(path.join(dir, "audio"), { recursive: true });
-    const db = new Database(path.join(dir, "app.db"));
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    db.pragma("busy_timeout = 5000");
-    db.exec(loadSchema());
-    globalForDb.homeworkDb = db;
+    globalForDb.homeworkDb = openDatabase().catch((error: unknown) => {
+      globalForDb.homeworkDb = undefined;
+      throw error;
+    });
   }
-  ensureVideoColumns(globalForDb.homeworkDb);
-  ensureTeacher(globalForDb.homeworkDb);
   return globalForDb.homeworkDb;
 }
 
-function ensureVideoColumns(db: Database.Database) {
+async function openDatabase(): Promise<Sql> {
+  const remote = tursoConfig();
+  const db = remote ? await openRemote(remote.url, remote.authToken) : openLocal();
+  await ensureVideoColumns(db);
+  await ensureTeacher(db);
+  return db;
+}
+
+function openLocal(): Sql {
+  const dir = dataDir();
+  fs.mkdirSync(path.join(dir, "audio"), { recursive: true });
+  const raw = new Database(path.join(dir, "app.db"));
+  raw.pragma("journal_mode = WAL");
+  raw.pragma("foreign_keys = ON");
+  raw.pragma("busy_timeout = 5000");
+  raw.exec(loadSchema());
+  return createSql({ root: sqliteExecutor(raw), queued: true });
+}
+
+async function openRemote(url: string, authToken: string): Promise<Sql> {
+  const connection = connect({ url, authToken });
+  await connection.exec(loadSchema());
+  await connection.exec("PRAGMA foreign_keys = ON");
+  return createSql({
+    root: commandExecutor(connection),
+    queued: false,
+    transact(fn, bind) {
+      const run = connection.transactionAsync(async (tx: Transaction) => bind(commandExecutor(tx), fn));
+      return run.immediate() as Promise<unknown>;
+    },
+  });
+}
+
+function sqliteExecutor(raw: Database.Database): Executor {
+  return {
+    get: (sql, args) => Promise.resolve(raw.prepare(sql).get(...args)),
+    all: (sql, args) => Promise.resolve(raw.prepare(sql).all(...args) as unknown[]),
+    run: (sql, args) => {
+      const info = raw.prepare(sql).run(...args);
+      return Promise.resolve(runResult(info.changes, info.lastInsertRowid));
+    },
+    exec: (sql) => {
+      raw.exec(sql);
+      return Promise.resolve();
+    },
+  };
+}
+
+function commandExecutor(command: Connection | Transaction): Executor {
+  const remote = command as Command;
+  return {
+    get: (sql, args) => remote.get(sql, ...args),
+    all: (sql, args) => remote.all(sql, ...args),
+    run: async (sql, args) => {
+      const info = await remote.run(sql, ...args);
+      return runResult(info.changes, info.lastInsertRowid);
+    },
+    exec: async (sql) => {
+      await remote.exec(sql);
+    },
+  };
+}
+
+function runResult(changes: number | undefined, lastInsertRowid: number | bigint | null | undefined): RunResult {
+  return { changes: Number(changes ?? 0), lastInsertRowid: Number(lastInsertRowid ?? 0) };
+}
+
+async function ensureVideoColumns(db: Sql) {
   if (videoColumnsReady) return;
-  addColumn(db, "assignment", "demo_video_path", "TEXT");
-  addColumn(db, "assignment", "demo_audio_path", "TEXT");
-  const cols = db.prepare("PRAGMA table_info(sentence_attempt)").all() as { name: string; notnull: number }[];
+  await addColumn(db, "assignment", "demo_video_path", "TEXT");
+  await addColumn(db, "assignment", "demo_audio_path", "TEXT");
+  const cols = (await db.prepare("PRAGMA table_info(sentence_attempt)").all()) as { name: string; notnull: number }[];
   const audio = cols.find((col) => col.name === "audio_path");
   const hasVideo = cols.some((col) => col.name === "video_path");
   if (audio && audio.notnull === 0 && hasVideo) {
     videoColumnsReady = true;
     return;
   }
-  db.pragma("foreign_keys = OFF");
+  await db.exec("PRAGMA foreign_keys = OFF");
   try {
-    db.exec("DROP TABLE IF EXISTS sentence_attempt_new");
-    const rebuild = db.transaction(() => {
-      db.exec(`
+    await db.exec("DROP TABLE IF EXISTS sentence_attempt_new");
+    await db.transaction(async () => {
+      await db.exec(`
         CREATE TABLE sentence_attempt_new (
           id INTEGER PRIMARY KEY,
           submission_id INTEGER NOT NULL REFERENCES submission(id),
@@ -81,27 +152,26 @@ function ensureVideoColumns(db: Database.Database) {
         CREATE INDEX IF NOT EXISTS idx_attempt_submission ON sentence_attempt(submission_id, sentence_id, id);
       `);
     });
-    rebuild();
   } finally {
-    db.pragma("foreign_keys = ON");
+    await db.exec("PRAGMA foreign_keys = ON");
   }
   videoColumnsReady = true;
 }
 
-function addColumn(db: Database.Database, table: string, column: string, type: string) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+async function addColumn(db: Sql, table: string, column: string, type: string) {
+  const cols = (await db.prepare(`PRAGMA table_info(${table})`).all()) as { name: string }[];
   if (cols.some((col) => col.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }
 
-function ensureTeacher(db: Database.Database) {
-  const existing = db.prepare("SELECT id FROM teacher LIMIT 1").get();
+async function ensureTeacher(db: Sql) {
+  const existing = await db.prepare("SELECT id FROM teacher LIMIT 1").get();
   if (existing) return;
   const password = readEnv("TEACHER_PASSWORD");
   if (!password) return;
-  db.prepare("INSERT INTO teacher (password_hash) VALUES (?)").run(hashPassword(password));
-  const classRow = db.prepare("SELECT id FROM class LIMIT 1").get();
+  await db.prepare("INSERT INTO teacher (password_hash) VALUES (?)").run(hashPassword(password));
+  const classRow = await db.prepare("SELECT id FROM class LIMIT 1").get();
   if (!classRow) {
-    db.prepare("INSERT INTO class (name, join_code) VALUES (?, NULL)").run("默认班级");
+    await db.prepare("INSERT INTO class (name, join_code) VALUES (?, NULL)").run("默认班级");
   }
 }

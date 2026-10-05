@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 export async function GET(_request: Request, context: { params: Promise<{ submissionId: string }> }) {
   const { submissionId } = await context.params;
-  const audio = reviewAudio(Number(submissionId));
+  const audio = await reviewAudio(Number(submissionId));
   if (!audio) return new Response("找不到音频", { status: 404 });
   const teacher = await getTeacherSession();
   const student = await getStudentSession();

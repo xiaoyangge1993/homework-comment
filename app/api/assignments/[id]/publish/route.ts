@@ -8,7 +8,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
   try {
     await requireTeacher();
     const { id } = await context.params;
-    const result = publishAssignment(Number(id));
+    const result = await publishAssignment(Number(id));
     return Response.json({ ok: true, ...result });
   } catch (error) {
     return errorResponse(error);

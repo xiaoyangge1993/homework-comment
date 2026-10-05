@@ -23,8 +23,8 @@ type TeacherPayload = { teacherId: number; exp: number };
 type StudentPayload = { studentId: number; classId: number; exp: number };
 
 export async function loginTeacher(password: string): Promise<string> {
-  const db = getDb();
-  const teacher = db.prepare("SELECT id, password_hash FROM teacher LIMIT 1").get() as
+  const db = await getDb();
+  const teacher = (await db.prepare("SELECT id, password_hash FROM teacher LIMIT 1").get()) as
     | { id: number; password_hash: string }
     | undefined;
   // The password is copied into the database on first boot. Later logins use that hash.

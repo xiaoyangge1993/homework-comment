@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request, context: { params: Promise<{ assignmentId: string }> }) {
   const { assignmentId } = await context.params;
-  const video = demoVideoPath(Number(assignmentId));
+  const video = await demoVideoPath(Number(assignmentId));
   if (!video) return new Response("找不到视频", { status: 404 });
   const teacher = await getTeacherSession();
   const student = await getStudentSession();

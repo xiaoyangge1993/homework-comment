@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         unreadable: "读不出视频时长",
         missingFfmpeg: "需要安装 ffmpeg 才能提交视频",
       });
-      const saved = createAttempt({
+      const saved = await createAttempt({
         studentId: student.studentId,
         classId: student.classId,
         assignmentId,
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       file.name || "audio.webm",
       Buffer.from(await file.arrayBuffer()),
     );
-    const saved = createAttempt({
+    const saved = await createAttempt({
       studentId: student.studentId,
       classId: student.classId,
       assignmentId,

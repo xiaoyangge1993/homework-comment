@@ -10,7 +10,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     if (!student) throw new AppError("请先输入班级码和姓名", 401);
     const { id } = await context.params;
     const attemptId = Number(id);
-    assertRetry(attemptId, student.studentId);
+    await assertRetry(attemptId, student.studentId);
     await gradeAttempt(attemptId);
     return Response.json({ ok: true, attemptId });
   } catch (error) {

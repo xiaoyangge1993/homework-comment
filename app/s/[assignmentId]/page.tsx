@@ -12,7 +12,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   if (!student) redirect(`/join?next=/s/${assignmentId}`);
   let view;
   try {
-    view = getStudentAssignment(id, student.studentId, student.classId);
+    view = await getStudentAssignment(id, student.studentId, student.classId);
   } catch (error) {
     if (error instanceof AppError) {
       return (

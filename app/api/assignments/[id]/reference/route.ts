@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (file.size > limits.maxAudioBytes) throw new AppError("录音太长了");
     const bytes = Buffer.from(await file.arrayBuffer());
     const relative = saveAudio(`reference/${assignmentId}`, file.name || "audio.webm", bytes);
-    setReferenceAudio(assignmentId, sentenceId, relative);
+    await setReferenceAudio(assignmentId, sentenceId, relative);
     return Response.json({ ok: true, url: `/api/audio/reference/${sentenceId}` });
   } catch (error) {
     return errorResponse(error);
