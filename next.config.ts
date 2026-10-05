@@ -3,11 +3,18 @@ import type { NextConfig } from "next";
 // Set before any route loads `ws`. A missing `bufferutil` addon must not replace the JS mask.
 process.env.WS_NO_BUFFER_UTIL ??= "1";
 
+const ffmpegPackage = "./node_modules/ffmpeg-static/**";
+
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3", "ws"],
+  serverExternalPackages: ["better-sqlite3", "ws", "ffmpeg-static"],
   // schema.sql is read with fs at runtime. The path is not static, so the tracer would drop it.
+  // The ffmpeg binary is not a JS import, so the tracer drops it. Add it on the routes that spawn it.
+  // Do not exclude it with a broad glob: excludes run after includes and `contains` matching would strip it.
   outputFileTracingIncludes: {
     "**": ["./lib/schema.sql"],
+    "/api/assignments/[id]/demo": [ffmpegPackage],
+    "/api/attempts": [ffmpegPackage],
+    "/api/attempts/[id]/retry": [ffmpegPackage],
   },
   experimental: {
     serverActions: {

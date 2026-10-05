@@ -3,6 +3,7 @@ import { AppError, errorResponse } from "@/lib/errors";
 import { assertRetry, gradeAttempt } from "@/lib/grading";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
   try {

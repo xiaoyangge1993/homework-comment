@@ -4,31 +4,56 @@ import fs from "fs";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { readEnv } from "./env";
+import { prepareExecutable, resolveBinary } from "./ffmpeg-bin";
 import { hasInternalPause } from "./rhythm";
 import { decodePcmWav, pcmHasInternalPause } from "./wav";
 
 const exec = promisify(execFile);
 
 const extraPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/sbin"].join(":");
+const executableTmp = path.join("/tmp", "homework-comment-bin");
+const resolvedTools = new Map<"ffmpeg" | "ffprobe", string>();
 
-function candidateBins(name: "ffmpeg" | "ffprobe"): string[] {
-  const fromEnv = name === "ffmpeg" ? process.env.FFMPEG_PATH : process.env.FFPROBE_PATH;
-  const prefixes = ["/opt/homebrew", "/usr/local"];
-  const formulas = ["ffmpeg", "ffmpeg@7", "ffmpeg@6", "ffmpeg@5"];
-  const kegs = prefixes.flatMap((prefix) => formulas.map((formula) => path.join(prefix, "opt", formula, "bin", name)));
-  return [
-    fromEnv,
-    ...kegs,
-    ...prefixes.map((prefix) => path.join(prefix, "bin", name)),
-    path.join(process.cwd(), "bin", name),
-  ].filter((value): value is string => Boolean(value));
+function bundledFfmpeg(): string {
+  // Path only. Requiring the package would pull the binary into every server trace.
+  return path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg");
+}
+
+function canExecute(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function resolveTool(name: "ffmpeg" | "ffprobe"): string {
-  for (const candidate of candidateBins(name)) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return name;
+  const cached = resolvedTools.get(name);
+  if (cached) return cached;
+  const picked = resolveBinary({
+    envPath: name === "ffmpeg" ? readEnv("FFMPEG_PATH") : readEnv("FFPROBE_PATH"),
+    cwd: process.cwd(),
+    name,
+    staticPath: name === "ffmpeg" ? bundledFfmpeg() : null,
+    exists: (file) => fs.existsSync(file),
+  });
+  const ready =
+    name === "ffmpeg"
+      ? prepareExecutable(picked, {
+          canExecute,
+          exists: (file) => fs.existsSync(file),
+          copy: (from, to) => {
+            fs.mkdirSync(path.dirname(to), { recursive: true });
+            fs.copyFileSync(from, to);
+          },
+          chmod: (file) => fs.chmodSync(file, 0o755),
+          tmpDir: executableTmp,
+        })
+      : picked;
+  resolvedTools.set(name, ready);
+  return ready;
 }
 
 function commandEnv(): NodeJS.ProcessEnv {
