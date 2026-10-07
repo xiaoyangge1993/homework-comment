@@ -6,6 +6,7 @@ import { syncDraft } from "./grading";
 import { attachSpeech } from "./tts";
 import { boardGroup, compareBoard, displayAverage, groupLabel, rhythmSummary, sentenceNeedsListen, type BoardGroup } from "./listen";
 import { wordsOf, type WordKind } from "./soe-parse";
+import { isFinalDirection, isIntonationStatus } from "./intonation";
 import type { AttemptView, ReviewSentence, RhythmLabel, SubmissionStatus } from "./types";
 
 export type BoardRow = {
@@ -30,6 +31,8 @@ type AttemptRow = {
   fluency: number | null;
   completion: number | null;
   rhythm: RhythmLabel | null;
+  intonation_status: string | null;
+  teacher_final: string | null;
   raw_json: string | null;
   created_at: string;
 };
@@ -38,7 +41,7 @@ async function latestAttempts(submissionId: number): Promise<Map<number, Attempt
   const db = await getDb();
   const rows = (await db
     .prepare(
-      `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at
+      `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, intonation_status, teacher_final, raw_json, created_at
        FROM sentence_attempt WHERE submission_id = ? ORDER BY id DESC`,
     )
     .all(submissionId)) as AttemptRow[];
@@ -60,6 +63,8 @@ function toAttempt(row: AttemptRow | undefined): AttemptView | null {
     fluency: row.fluency,
     completion: row.completion,
     rhythm: row.rhythm,
+    intonationStatus: isIntonationStatus(row.intonation_status) ? row.intonation_status : null,
+    teacherFinal: isFinalDirection(row.teacher_final) ? row.teacher_final : null,
     rawJson: row.raw_json,
     createdAt: row.created_at,
   };

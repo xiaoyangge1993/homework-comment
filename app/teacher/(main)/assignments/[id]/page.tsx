@@ -161,6 +161,7 @@ async function TeacherReview({ assignmentId, submissionId }: { assignmentId: num
   if (!Number.isInteger(submissionId)) notFound();
   const { loadReview } = await import("@/lib/review");
   const { ttsConfigured } = await import("@/lib/tts");
+  const { parselmouthAvailable } = await import("@/lib/intonation-run");
   let review;
   try {
     review = await loadReview(assignmentId, submissionId);
@@ -184,6 +185,7 @@ async function TeacherReview({ assignmentId, submissionId }: { assignmentId: num
         draftText={review.draftText}
         sentences={review.sentences}
         speechReady={ttsConfigured()}
+        intonationEnabled={await parselmouthAvailable()}
       />
     </div>
   );

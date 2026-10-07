@@ -10,6 +10,9 @@ export type SentenceDTO = {
 
 export type AssignmentStatus = "draft" | "published" | "closed";
 export type SubmissionStatus = "partial" | "submitted" | "returned" | "accepted";
+import type { FinalDirection, IntonationStatus } from "./intonation";
+
+export type { FinalDirection, IntonationStatus };
 export type RhythmLabel = "接近" | "偏快" | "偏慢" | "停顿偏长";
 export type TextMark = {
   text: string;
@@ -37,6 +40,8 @@ export type AttemptView = {
   fluency: number | null;
   completion: number | null;
   rhythm: RhythmLabel | null;
+  intonationStatus: IntonationStatus | null;
+  teacherFinal: FinalDirection | null;
   rawJson: string | null;
   createdAt: string;
 };

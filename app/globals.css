@@ -217,6 +217,14 @@ button.mark-jump {
 
 .pill.listen { background: var(--red-bg); color: var(--red); }
 .pill.pass { background: var(--green-bg); color: var(--green); }
+.pill.uncertain { background: #f3eee6; color: #8a8175; }
+
+.sentence-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -310,6 +318,7 @@ th { color: var(--muted); font-weight: 650; font-size: 0.92rem; }
 .grade-surface .pill { background: #f3eee6; color: #1c1915; font-weight: 650; }
 .grade-surface .pill.listen { background: #f8ebe3; color: #9a3412; }
 .grade-surface .pill.pass { background: #e7f2ea; color: #166534; }
+.grade-surface .pill.uncertain { background: #f3eee6; color: #8a8175; }
 
 .grade-surface .btn { background: #f3eee6; color: #1c1915; border-radius: 10px; }
 .grade-surface .btn.primary { background: #0f6e56; color: #f6f1e8; }

@@ -8,6 +8,8 @@ import { INAUDIBLE_ERROR, limits } from "./config";
 import { getDb } from "./db";
 import { buildDraft, type DraftSentence } from "./draft";
 import { AppError } from "./errors";
+import { failed, isFinalDirection, isIntonationStatus, type StoredIntonation } from "./intonation";
+import { measureIntonation } from "./intonation-run";
 import { commandWorks, detectInternalPause, durationSeconds, transcodeWav } from "./media";
 import { extractWav, resolveVideo } from "./video";
 import { decodePcmWav, encodePcm16Wav, isInaudible, trimEdgeSilence } from "./wav";
@@ -61,7 +63,7 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
   if (row.video_path && !isPcm16k(audioRelative)) {
     const extracted = await extractAttemptAudio(attemptId, row.video_path);
     if (!extracted.ok) {
-      await writeGrade(attemptId, row.submission_id, null, { error: extracted.error }, null, null, null);
+      await writeGrade(attemptId, row.submission_id, null, { error: extracted.error }, null, null, null, null);
       return;
     }
     audioRelative = extracted.path;
@@ -78,6 +80,7 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
       null,
       null,
       null,
+      null,
     );
     return;
   }
@@ -85,13 +88,18 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
   const prepared = await prepareScoringWav(attemptId, studentFile);
   if (!prepared.ok) {
     const raw = "error" in prepared ? { error: prepared.error } : { error: INAUDIBLE_ERROR };
-    await writeGrade(attemptId, row.submission_id, null, raw, null, null, null);
+    const intonation =
+      "inaudible" in prepared && prepared.inaudible
+        ? await attachIntonation(`wav/${attemptId}.wav`, row.reference_audio_path)
+        : null;
+    await writeGrade(attemptId, row.submission_id, null, raw, null, null, null, intonation);
     return;
   }
 
   const rhythm = await measureRhythm(`wav/${attemptId}.wav`, row.reference_audio_path);
+  const intonation = await attachIntonation(`wav/${attemptId}.wav`, row.reference_audio_path);
   if (!soeConfigured()) {
-    await writeGrade(attemptId, row.submission_id, rhythm, { error: EVALUATION_NOT_CONFIGURED }, null, null, null);
+    await writeGrade(attemptId, row.submission_id, rhythm, { error: EVALUATION_NOT_CONFIGURED }, null, null, null, intonation);
     return;
   }
 
@@ -107,7 +115,16 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
     judged.accuracy,
     judged.fluency,
     judged.completion,
+    intonation,
   );
+}
+
+async function attachIntonation(studentRelative: string, referencePath: string | null): Promise<StoredIntonation> {
+  try {
+    return await measureIntonation(studentRelative, referencePath);
+  } catch {
+    return failed("failed");
+  }
 }
 
 async function judgeSentence(text: string, wav: Buffer, evaluated: Evaluation, remaining: () => number) {
@@ -206,11 +223,29 @@ async function writeGrade(
   accuracy: number | null,
   fluency: number | null,
   completion: number | null,
+  intonation: StoredIntonation | null,
 ) {
   const db = await getDb();
   await db
-    .prepare("UPDATE sentence_attempt SET accuracy = ?, fluency = ?, completion = ?, rhythm = ?, raw_json = ? WHERE id = ?")
-    .run(accuracy, fluency, completion, rhythm, JSON.stringify(raw), attemptId);
+    .prepare(
+      `UPDATE sentence_attempt
+       SET accuracy = ?, fluency = ?, completion = ?, rhythm = ?, raw_json = ?,
+           intonation_status = ?, teacher_final = ?, student_final = ?, contour_agreement = ?, intonation_json = ?
+       WHERE id = ?`,
+    )
+    .run(
+      accuracy,
+      fluency,
+      completion,
+      rhythm,
+      JSON.stringify(raw),
+      intonation?.status ?? null,
+      intonation?.teacherFinal ?? null,
+      intonation?.studentFinal ?? null,
+      intonation?.agreement ?? null,
+      intonation?.json ?? null,
+      attemptId,
+    );
   await syncDraft(submissionId);
 }
 
@@ -291,11 +326,19 @@ export async function syncDraft(submissionId: number) {
   for (const sentence of sentences) {
     const attempt = (await db
       .prepare(
-        `SELECT id, accuracy, completion, rhythm, raw_json FROM sentence_attempt
+        `SELECT id, accuracy, completion, rhythm, raw_json, intonation_status, teacher_final FROM sentence_attempt
          WHERE submission_id = ? AND sentence_id = ? ORDER BY id DESC LIMIT 1`,
       )
       .get(submissionId, sentence.id)) as
-      | { id: number; accuracy: number | null; completion: number | null; rhythm: RhythmLabel | null; raw_json: string | null }
+      | {
+          id: number;
+          accuracy: number | null;
+          completion: number | null;
+          rhythm: RhythmLabel | null;
+          raw_json: string | null;
+          intonation_status: string | null;
+          teacher_final: string | null;
+        }
       | undefined;
     const words = wordsOf(attempt?.raw_json ?? null);
     const completion = completionFrom(sentence.text_en, words, attempt?.accuracy ?? null);
@@ -310,6 +353,8 @@ export async function syncDraft(submissionId: number) {
       missed: words.filter((word) => word.kind === "miss").map((word) => word.word),
       wrong: words.filter((word) => word.kind === "wrong").map((word) => ({ word: word.word, phone: word.phones[0]?.phone })),
       rhythm: attempt?.rhythm ?? null,
+      intonationStatus: isIntonationStatus(attempt?.intonation_status) ? attempt.intonation_status : null,
+      teacherFinal: isFinalDirection(attempt?.teacher_final) ? attempt.teacher_final : null,
     });
   }
   const draft = buildDraft(draftSentences);

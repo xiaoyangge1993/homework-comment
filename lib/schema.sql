@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS sentence_attempt (
   completion REAL,
   rhythm TEXT,
   raw_json TEXT,
+  intonation_status TEXT,
+  teacher_final TEXT,
+  student_final TEXT,
+  contour_agreement REAL,
+  intonation_json TEXT,
   created_at TEXT NOT NULL
 );
 

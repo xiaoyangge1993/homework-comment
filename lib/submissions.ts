@@ -2,6 +2,7 @@ import "server-only";
 
 import { getDb } from "./db";
 import { AppError } from "./errors";
+import { isFinalDirection, isIntonationStatus } from "./intonation";
 import type { AttemptView, RhythmLabel, StudentAssignmentView, SubmissionStatus } from "./types";
 
 type StudentRow = { id: number; class_id: number; display_name: string };
@@ -109,7 +110,7 @@ export async function getStudentAssignment(
   if (submission) {
     const rows = (await db
       .prepare(
-        `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, raw_json, created_at
+        `SELECT id, sentence_id, audio_path, video_path, accuracy, fluency, completion, rhythm, intonation_status, teacher_final, raw_json, created_at
          FROM sentence_attempt WHERE submission_id = ? ORDER BY id DESC`,
       )
       .all(submission.id)) as {
@@ -121,6 +122,8 @@ export async function getStudentAssignment(
       fluency: number | null;
       completion: number | null;
       rhythm: RhythmLabel | null;
+      intonation_status: string | null;
+      teacher_final: string | null;
       raw_json: string | null;
       created_at: string;
     }[];
@@ -135,6 +138,8 @@ export async function getStudentAssignment(
         fluency: row.fluency,
         completion: row.completion,
         rhythm: row.rhythm,
+        intonationStatus: isIntonationStatus(row.intonation_status) ? row.intonation_status : null,
+        teacherFinal: isFinalDirection(row.teacher_final) ? row.teacher_final : null,
         rawJson: row.raw_json,
         createdAt: row.created_at,
       });

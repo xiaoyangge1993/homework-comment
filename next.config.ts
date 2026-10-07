@@ -7,11 +7,11 @@ const ffmpegPackage = "./node_modules/ffmpeg-static/**";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["better-sqlite3", "ws", "ffmpeg-static"],
-  // schema.sql is read with fs at runtime. The path is not static, so the tracer would drop it.
+  // schema.sql and the intonation script are read or spawned by path, so the tracer would drop them.
   // The ffmpeg binary is not a JS import, so the tracer drops it. Add it on the routes that spawn it.
   // Do not exclude it with a broad glob: excludes run after includes and `contains` matching would strip it.
   outputFileTracingIncludes: {
-    "**": ["./lib/schema.sql"],
+    "**": ["./lib/schema.sql", "./scripts/intonation.py"],
     "/api/assignments/[id]/demo": [ffmpegPackage],
     "/api/attempts": [ffmpegPackage],
     "/api/attempts/[id]/retry": [ffmpegPackage],

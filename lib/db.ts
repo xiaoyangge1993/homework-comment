@@ -49,6 +49,7 @@ async function openDatabase(): Promise<Sql> {
   const remote = tursoConfig();
   const db = remote ? await openRemote(remote.url, remote.authToken) : await openLocal();
   await ensureVideoColumns(db);
+  await ensureIntonationColumns(db);
   await ensureTeacher(db);
   return db;
 }
@@ -207,6 +208,14 @@ async function ensureVideoColumns(db: Sql) {
     await db.exec("PRAGMA foreign_keys = ON");
   }
   videoColumnsReady = true;
+}
+
+async function ensureIntonationColumns(db: Sql) {
+  await addColumn(db, "sentence_attempt", "intonation_status", "TEXT");
+  await addColumn(db, "sentence_attempt", "teacher_final", "TEXT");
+  await addColumn(db, "sentence_attempt", "student_final", "TEXT");
+  await addColumn(db, "sentence_attempt", "contour_agreement", "REAL");
+  await addColumn(db, "sentence_attempt", "intonation_json", "TEXT");
 }
 
 async function addColumn(db: Sql, table: string, column: string, type: string) {

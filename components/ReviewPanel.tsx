@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReviewSentence } from "@/lib/types";
+import { intonationLabel } from "@/lib/intonation";
 import { storedError } from "@/lib/soe-parse";
 import { MarkedSentence } from "./MarkedSentence";
 
@@ -11,11 +12,13 @@ export function ReviewPanel({
   draftText,
   sentences,
   speechReady,
+  intonationEnabled,
 }: {
   submissionId: number;
   draftText: string;
   sentences: ReviewSentence[];
   speechReady: boolean;
+  intonationEnabled: boolean;
 }) {
   const router = useRouter();
   const [text, setText] = useState(draftText);
@@ -47,6 +50,7 @@ export function ReviewPanel({
 
   return (
     <div className="stack">
+      {intonationEnabled ? null : <p className="muted">语调未启用</p>}
       <label className="row">
         <input type="checkbox" checked={onlyProblems} onChange={(event) => setOnlyProblems(event.target.checked)} />
         只看要听的句子
@@ -114,6 +118,7 @@ function ReviewSentenceCard({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const attempt = sentence.attempt;
+  const tone = intonationLabel(attempt?.intonationStatus ?? null, attempt?.teacherFinal ?? null);
 
   function seek(seconds: number) {
     const player = videoRef.current;
@@ -126,7 +131,10 @@ function ReviewSentenceCard({
     <article className={sentence.needsListen ? "card listen-card" : "card"}>
       <div className="sentence-head">
         <h2>第 {sentence.index} 句</h2>
-        {sentence.needsListen ? <span className="pill listen">建议亲听</span> : <span className="pill pass">可过</span>}
+        <div className="sentence-tags">
+          {tone ? <span className={tone === "无法判断" ? "pill uncertain" : "pill"}>{tone}</span> : null}
+          {sentence.needsListen ? <span className="pill listen">建议亲听</span> : <span className="pill pass">可过</span>}
+        </div>
       </div>
       <MarkedSentence text={sentence.textEn} rawJson={attempt?.rawJson ?? null} onSeek={attempt?.videoUrl ? seek : undefined} />
       {sentence.textZh ? <p className="muted">{sentence.textZh}</p> : null}

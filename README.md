@@ -18,6 +18,8 @@
 - Node.js 20 或更新版本
 - ffmpeg，用来把录音和视频抽成 16 kHz、16 bit、单声道 wav，去掉首尾静音后再交给智聆。没有 ffmpeg 时，纯音频里已经是 wav 的仍可评测；视频提交会被拒绝，并提示安装 ffmpeg。已经保存的视频仍可播放。macOS 13 及更新版本可以用 `brew install ffmpeg`。macOS 12 没有现成的 Homebrew 安装包，可以把可执行文件放到 `bin/ffmpeg`，或在 `.env.local` 里设置 `FFMPEG_PATH`。服务也会查找 `/opt/homebrew/bin` 和 `/usr/local/bin`。部署到 Vercel 时不用再放一份 Linux 二进制：安装依赖时 `ffmpeg-static` 会带上当前平台的 ffmpeg，只打进处理视频和评测的接口。
 
+语调比对另需本机 Python 3 和 Praat 的 Python 包：`pip install praat-parselmouth`。只有该句已经有老师的逐句标准音时，才会比较句末升降和整句是否偏平。没装 Python 或这个包时，批改页显示「语调未启用」，提交和智聆照常。语调只是附加结果，不改准确度、完整度，也不单独决定通过或打回。
+
 ## 配置
 
 ```bash

@@ -48,4 +48,47 @@ describe("buildDraft", () => {
     assert.ok(text.length <= 80);
     assert.ok(text.endsWith("。"));
   });
+
+  it("keeps the pass line and skips intonation when the ending matches", () => {
+    const text = buildDraft([{ ...good(1), intonationStatus: "match", teacherFinal: "rise" }]);
+    assert.equal(text, "一句都读全了，可以过。");
+    assert.doesNotMatch(text, /升调|降调|偏平|语调/);
+  });
+
+  it("appends one rising-ending line and does not ask for a reread", () => {
+    const text = buildDraft([{ ...good(1), intonationStatus: "final_mismatch", teacherFinal: "rise" }]);
+    assert.equal(text, "一句都读全了，可以过。第 1 句末应跟上老师读成升调。");
+    assert.doesNotMatch(text, /请再跟读/);
+  });
+
+  it("appends the flat line ahead of a later mismatch", () => {
+    const text = buildDraft([
+      { ...good(1), intonationStatus: "flat", teacherFinal: "rise" },
+      { ...good(2), intonationStatus: "final_mismatch", teacherFinal: "fall" },
+    ]);
+    assert.equal(text, "二句都读全了，可以过。第 1 句语调偏平，试着跟上老师的起伏。");
+    assert.doesNotMatch(text, /降调/);
+  });
+
+  it("ignores uncertain and skipped intonation", () => {
+    const text = buildDraft([
+      { ...good(1), intonationStatus: "uncertain", teacherFinal: null },
+      { ...good(2), intonationStatus: "skipped", teacherFinal: null },
+    ]);
+    assert.equal(text, "二句都读全了，可以过。");
+  });
+
+  it("keeps a single intonation line inside 80 characters", () => {
+    const sentences = Array.from({ length: 8 }, (_, index) => ({
+      ...good(index + 1),
+      accuracy: null,
+      evaluated: false,
+      intonationStatus: index === 3 ? ("final_mismatch" as const) : null,
+      teacherFinal: index === 3 ? ("fall" as const) : null,
+    }));
+    const text = buildDraft(sentences);
+    assert.ok(text.length <= 80);
+    assert.match(text, /第 4 句末应跟上老师读成降调。/);
+    assert.equal(text.split("句末应跟上").length, 2);
+  });
 });

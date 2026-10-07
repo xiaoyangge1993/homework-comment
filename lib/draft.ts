@@ -1,4 +1,5 @@
 import { limits } from "./config";
+import { firstIntonationComment, type FinalDirection, type IntonationStatus } from "./intonation";
 import type { RhythmLabel } from "./types";
 
 export type DraftSentence = {
@@ -9,6 +10,8 @@ export type DraftSentence = {
   missed: string[];
   wrong: { word: string; phone?: string }[];
   rhythm: RhythmLabel | null;
+  intonationStatus?: IntonationStatus | null;
+  teacherFinal?: FinalDirection | null;
 };
 
 const CN = "零一二三四五六七八九十";
@@ -57,9 +60,19 @@ function groupLine(items: { index: number; word: string }[], render: (index: num
 
 export function buildDraft(sentences: DraftSentence[]): string {
   if (sentences.length === 0) return "";
+  const note = firstIntonationComment(
+    sentences.map((sentence) => ({
+      index: sentence.index,
+      intonationStatus: sentence.intonationStatus ?? null,
+      teacherFinal: sentence.teacherFinal ?? null,
+    })),
+  );
+  const reserved = note && note.length < limits.draftMaxChars ? note.length : 0;
+  const budget = limits.draftMaxChars - reserved;
+  const withNote = (text: string) => (reserved > 0 && note ? `${text}${note}` : text);
   let shortest = "";
   const remember = (text: string) => {
-    if (text.length <= limits.draftMaxChars) return text;
+    if (text.length <= budget) return withNote(text);
     if (!shortest || text.length < shortest.length) shortest = text;
     return null;
   };
@@ -67,7 +80,11 @@ export function buildDraft(sentences: DraftSentence[]): string {
     sentences.every((sentence) => sentence.evaluated && sentence.accuracy != null && sentence.accuracy >= limits.accuracyPassAt) &&
     sentences.every((sentence) => sentence.missed.length === 0 && sentence.wrong.length === 0) &&
     sentences.every((sentence) => sentence.rhythm !== "偏慢" && sentence.rhythm !== "停顿偏长");
-  if (clean) return `${countLabel(sentences.length)}句都读全了，可以过。`;
+  if (clean) {
+    const text = `${countLabel(sentences.length)}句都读全了，可以过。`;
+    if (text.length <= budget) return withNote(text);
+    return text.length <= limits.draftMaxChars ? text : `${text.slice(0, limits.draftMaxChars - 1)}。`;
+  }
 
   let phone = "";
   for (const sentence of sentences) {
@@ -115,5 +132,7 @@ export function buildDraft(sentences: DraftSentence[]): string {
     }
   }
   const clipped = shortest || "请老师亲听。";
-  return clipped.length <= limits.draftMaxChars ? clipped : `${clipped.slice(0, limits.draftMaxChars - 1)}。`;
+  const base = clipped.length <= budget ? clipped : `${clipped.slice(0, Math.max(0, budget - 1))}。`;
+  if (base.length <= budget) return withNote(base);
+  return base.length <= limits.draftMaxChars ? base : `${base.slice(0, limits.draftMaxChars - 1)}。`;
 }
