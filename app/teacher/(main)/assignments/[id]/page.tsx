@@ -181,6 +181,7 @@ async function TeacherReview({ assignmentId, submissionId }: { assignmentId: num
       {review.decision === "returned" ? <p className="warn">已打回。学生只能重录被选中的句子。</p> : null}
       {review.ttsUrl ? <audio controls preload="none" src={review.ttsUrl} /> : null}
       <ReviewPanel
+        assignmentId={assignmentId}
         submissionId={review.submissionId}
         draftText={review.draftText}
         sentences={review.sentences}

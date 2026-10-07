@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { audioRoot, resolveAudio } from "./audio";
+import { openReferenceFile } from "./reference-file";
 import { isRemoteVideoPath } from "./blob-path";
 import { readBlobToFile } from "./blob-store";
 import { recognizeEnglish } from "./asr";
@@ -315,13 +316,17 @@ function pcm16kWav(file: string): Buffer | null {
 async function measureRhythm(studentPath: string, referencePath: string | null): Promise<RhythmLabel | null> {
   if (!referencePath) return null;
   const studentFile = resolveAudio(studentPath);
-  const teacherFile = resolveAudio(referencePath);
-  if (!studentFile || !teacherFile) return null;
-  const studentDuration = await durationSeconds(studentFile);
-  const teacherDuration = await durationSeconds(teacherFile);
-  if (!studentDuration || !teacherDuration) return null;
-  const pause = await detectInternalPause(studentFile, studentDuration);
-  return classifyRhythm(studentDuration, teacherDuration, pause);
+  const teacher = await openReferenceFile(referencePath);
+  try {
+    if (!studentFile || !teacher.absolute) return null;
+    const studentDuration = await durationSeconds(studentFile);
+    const teacherDuration = await durationSeconds(teacher.absolute);
+    if (!studentDuration || !teacherDuration) return null;
+    const pause = await detectInternalPause(studentFile, studentDuration);
+    return classifyRhythm(studentDuration, teacherDuration, pause);
+  } finally {
+    teacher.close();
+  }
 }
 
 function completionFrom(text: string, words: ParsedWord[], accuracy: number | null): number | null | undefined {

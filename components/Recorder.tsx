@@ -6,6 +6,7 @@ import { encodePcm16Wav, floatToPcm16, resampleLinear } from "@/lib/wav";
 
 type Props = {
   onSubmit: (blob: Blob) => Promise<void>;
+  recordLabel?: string;
   submitLabel?: string;
   disabled?: boolean;
 };
@@ -22,7 +23,7 @@ function audioContext(): AudioContext | null {
   return new ctor();
 }
 
-export function Recorder({ onSubmit, submitLabel = "保存录音", disabled }: Props) {
+export function Recorder({ onSubmit, recordLabel = "录音", submitLabel = "保存录音", disabled }: Props) {
   const maxSeconds = limits.maxRecordSeconds;
   const [state, setState] = useState<"idle" | "recording" | "preview" | "saving">("idle");
   const [seconds, setSeconds] = useState(0);
@@ -187,7 +188,7 @@ export function Recorder({ onSubmit, submitLabel = "保存录音", disabled }: P
         </button>
       ) : (
         <button type="button" className="btn" onClick={start} disabled={disabled || state === "saving"}>
-          {previewUrl ? "重录" : "录音"}
+          {previewUrl ? "重录" : recordLabel}
         </button>
       )}
       {previewUrl && state !== "recording" ? (

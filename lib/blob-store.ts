@@ -33,6 +33,19 @@ export async function readBlobToFile(blobUrl: string, absolute: string): Promise
   );
 }
 
+export async function putPrivateBytes(
+  pathname: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<{ url: string; pathname: string }> {
+  const blob = await put(pathname, bytes, {
+    access: "private",
+    contentType,
+    addRandomSuffix: true,
+  });
+  return { url: blob.url, pathname: blob.pathname };
+}
+
 export async function putPrivateFile(
   pathname: string,
   absolute: string,
@@ -56,9 +69,9 @@ export async function removeBlob(urlOrPathname: string): Promise<void> {
   }
 }
 
-export async function signedVideoRedirect(blobUrl: string): Promise<Response> {
+export async function signedBlobRedirect(blobUrl: string, missing: string): Promise<Response> {
   const pathname = remoteBlobPathname(blobUrl);
-  if (!pathname) return new Response("找不到视频", { status: 404 });
+  if (!pathname) return new Response(missing, { status: 404 });
   try {
     const validUntil = Date.now() + SIGNED_URL_MS;
     const signed = await issueSignedToken({ pathname, operations: ["get"], validUntil });
@@ -77,6 +90,10 @@ export async function signedVideoRedirect(blobUrl: string): Promise<Response> {
     });
   } catch (error) {
     console.error(error);
-    return new Response("找不到视频", { status: 404 });
+    return new Response(missing, { status: 404 });
   }
+}
+
+export async function signedVideoRedirect(blobUrl: string): Promise<Response> {
+  return signedBlobRedirect(blobUrl, "找不到视频");
 }

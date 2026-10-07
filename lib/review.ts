@@ -1,7 +1,9 @@
 import "server-only";
 
+import { resolveAudio } from "./audio";
 import { getDb } from "./db";
 import { AppError } from "./errors";
+import { storedReferenceState } from "./reference-store";
 import { syncDraft } from "./grading";
 import { attachSpeech } from "./tts";
 import { boardGroup, compareBoard, displayAverage, groupLabel, rhythmSummary, sentenceNeedsListen, type BoardGroup } from "./listen";
@@ -161,12 +163,17 @@ export async function loadReview(assignmentId: number, submissionId: number) {
       rhythm: attempt?.rhythm ?? null,
       ...listenFlags(wordsOf(attempt?.rawJson ?? null)),
     });
+    const referenceState = storedReferenceState(
+      sentence.reference_audio_path,
+      Boolean(sentence.reference_audio_path && resolveAudio(sentence.reference_audio_path)),
+    );
     return {
       id: sentence.id,
       index: sentence.idx + 1,
       textEn: sentence.text_en,
       textZh: sentence.text_zh ?? "",
-      referenceUrl: sentence.reference_audio_path ? `/api/audio/reference/${sentence.id}` : null,
+      referenceUrl: referenceState === "ready" ? `/api/audio/reference/${sentence.id}` : null,
+      referenceMissing: referenceState === "missing",
       needsListen,
       attempt,
     };

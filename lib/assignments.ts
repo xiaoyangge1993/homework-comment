@@ -3,15 +3,16 @@ import "server-only";
 import { randomBytes } from "crypto";
 import fs from "fs";
 import path from "path";
-import { audioRoot } from "./audio";
+import { audioRoot, resolveAudio } from "./audio";
 import { limits } from "./config";
 import { getDb } from "./db";
 import { AppError } from "./errors";
 import { missingEnvMessage, readEnv } from "./env";
 import { countWords, mergeText, pairSentences, splitChineseOnce, splitOnce, tooLong } from "./sentences";
 import type { AssignmentStatus, SentenceDTO } from "./types";
-import { blobUploadMatches } from "./blob-path";
+import { blobUploadMatches, isRemoteVideoPath } from "./blob-path";
 import { removeBlob } from "./blob-store";
+import { canReplaceReference } from "./reference-store";
 import { stageRemoteVideo } from "./remote-video";
 import { acceptVideoUpload, extractWav } from "./video";
 
@@ -323,10 +324,29 @@ function fsUnlink(file: string) {
 }
 
 export async function setReferenceAudio(assignmentId: number, sentenceId: number, relativePath: string) {
-  const row = await draftSentence(sentenceId);
-  if (row.assignment_id !== assignmentId) throw new AppError("句子不属于这份作业");
   const db = await getDb();
+  const row = (await db.prepare("SELECT * FROM sentence WHERE id = ?").get(sentenceId)) as SentenceRow | undefined;
+  if (!row) throw new AppError("找不到句子", 404);
+  if (row.assignment_id !== assignmentId) throw new AppError("句子不属于这份作业");
+  const assignment = (await db.prepare("SELECT status FROM assignment WHERE id = ?").get(assignmentId)) as
+    | { status: string }
+    | undefined;
+  if (!assignment) throw new AppError("找不到作业", 404);
+  if (!canReplaceReference(assignment.status)) throw new AppError("这份作业不能再换标准音");
+  const previous = row.reference_audio_path;
   await db.prepare("UPDATE sentence SET reference_audio_path = ? WHERE id = ?").run(relativePath, sentenceId);
+  if (!previous || previous === relativePath) return;
+  if (isRemoteVideoPath(previous)) {
+    await removeBlob(previous);
+    return;
+  }
+  const full = resolveAudio(previous);
+  if (!full) return;
+  try {
+    fs.unlinkSync(full);
+  } catch {
+    /* the old reference file is already gone */
+  }
 }
 
 async function makeJoinCode(): Promise<string> {

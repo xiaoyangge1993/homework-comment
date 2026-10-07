@@ -6,6 +6,7 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { resolveAudio } from "./audio";
+import { openReferenceFile } from "./reference-file";
 import { commandWorks, transcodeWav } from "./media";
 import {
   emptyIntonation,
@@ -34,12 +35,15 @@ export async function measureIntonation(
   }
   if (!(await parselmouthAvailable())) return emptyIntonation();
   const studentFile = resolveAudio(studentRelative);
-  const teacherFile = resolveAudio(referenceRelative);
-  if (!studentFile || !teacherFile) return failed("missing_file");
+  const teacher = await openReferenceFile(referenceRelative);
+  if (!studentFile || !teacher.absolute) {
+    teacher.close();
+    return failed("missing_file");
+  }
 
   let temp: string | null = null;
   try {
-    const teacherWav = await ensureTeacherWav(teacherFile);
+    const teacherWav = await ensureTeacherWav(teacher.absolute);
     temp = teacherWav.temp;
     const { stdout } = await exec(python(), [scriptPath(), studentFile, teacherWav.path], {
       timeout: TIMEOUT_MS,
@@ -51,6 +55,7 @@ export async function measureIntonation(
     return failed("failed");
   } finally {
     removeTemp(temp);
+    teacher.close();
   }
 }
 

@@ -11,7 +11,7 @@ export function audioRoot(): string {
   return path.join(dataDir(), "audio");
 }
 
-function safeExtension(filename: string): string {
+export function audioSuffix(filename: string): string {
   const match = filename.toLowerCase().match(/\.([a-z0-9]{1,5})$/);
   const ext = match?.[1] ?? "webm";
   if (["webm", "wav", "mp3", "mp4", "m4a", "ogg", "mpeg"].includes(ext)) return `.${ext}`;
@@ -19,7 +19,7 @@ function safeExtension(filename: string): string {
 }
 
 export function saveAudio(subdir: string, filename: string, bytes: Buffer): string {
-  const name = `${Date.now()}-${randomBytes(4).toString("hex")}${safeExtension(filename)}`;
+  const name = `${Date.now()}-${randomBytes(4).toString("hex")}${audioSuffix(filename)}`;
   const dir = path.join(audioRoot(), subdir);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), bytes);

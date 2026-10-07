@@ -27,6 +27,7 @@ export type ReviewSentence = {
   textEn: string;
   textZh: string;
   referenceUrl: string | null;
+  referenceMissing: boolean;
   needsListen: boolean;
   attempt: AttemptView | null;
 };

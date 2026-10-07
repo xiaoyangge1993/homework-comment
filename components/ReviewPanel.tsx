@@ -6,14 +6,17 @@ import type { ReviewSentence } from "@/lib/types";
 import { intonationLabel } from "@/lib/intonation";
 import { storedError } from "@/lib/soe-parse";
 import { MarkedSentence } from "./MarkedSentence";
+import { Recorder } from "./Recorder";
 
 export function ReviewPanel({
+  assignmentId,
   submissionId,
   draftText,
   sentences,
   speechReady,
   intonationEnabled,
 }: {
+  assignmentId: number;
   submissionId: number;
   draftText: string;
   sentences: ReviewSentence[];
@@ -58,6 +61,7 @@ export function ReviewPanel({
       {visible.map((sentence) => (
         <ReviewSentenceCard
           key={sentence.id}
+          assignmentId={assignmentId}
           sentence={sentence}
           picked={picked.includes(sentence.id)}
           onToggle={(checked) =>
@@ -108,16 +112,32 @@ export function ReviewPanel({
 }
 
 function ReviewSentenceCard({
+  assignmentId,
   sentence,
   picked,
   onToggle,
 }: {
+  assignmentId: number;
   sentence: ReviewSentence;
   picked: boolean;
   onToggle: (checked: boolean) => void;
 }) {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const attempt = sentence.attempt;
+  const replaceLabel = sentence.referenceUrl || sentence.referenceMissing ? "重新录标准音" : "录标准音";
+
+  async function uploadReference(blob: Blob) {
+    const form = new FormData();
+    form.set("sentenceId", String(sentence.id));
+    const type = blob.type || "audio/webm";
+    const ext = type.includes("wav") ? "wav" : type.includes("mp4") ? "mp4" : "webm";
+    form.set("file", new File([blob], `reference.${ext}`, { type }));
+    const response = await fetch(`/api/assignments/${assignmentId}/reference`, { method: "POST", body: form });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) throw new Error(payload.error || "标准音保存失败");
+    router.refresh();
+  }
   const tone = intonationLabel(attempt?.intonationStatus ?? null, attempt?.teacherFinal ?? null);
 
   function seek(seconds: number) {
@@ -138,12 +158,14 @@ function ReviewSentenceCard({
       </div>
       <MarkedSentence text={sentence.textEn} rawJson={attempt?.rawJson ?? null} onSeek={attempt?.videoUrl ? seek : undefined} />
       {sentence.textZh ? <p className="muted">{sentence.textZh}</p> : null}
-      {sentence.referenceUrl ? (
-        <div>
-          <p className="muted">标准音</p>
+      <div>
+        <p className="muted">标准音</p>
+        {sentence.referenceUrl ? (
           <audio controls preload="none" src={sentence.referenceUrl} onPlay={pauseCardMates} />
-        </div>
-      ) : null}
+        ) : null}
+        {sentence.referenceMissing ? <p className="warn">这份标准音存在临时磁盘上，已经找不到了。</p> : null}
+        <Recorder recordLabel={replaceLabel} submitLabel={replaceLabel} onSubmit={uploadReference} />
+      </div>
       {attempt?.videoUrl ? (
         <div>
           <p className="muted">学生视频</p>
