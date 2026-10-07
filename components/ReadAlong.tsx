@@ -24,7 +24,7 @@ export function ReadAlong({
     if (kind === "video") {
       const mode = await requireVideoMode();
       if (mode.enabled) {
-        const blob = await uploadVideoToBlob(file, { kind: "attempt", assignmentId: view.id, sentenceId });
+        const blob = await uploadVideoToBlob(file, { kind: "attempt", assignmentId: view.id, sentenceId, presigned: mode.presigned });
         const response = await fetch("/api/attempts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

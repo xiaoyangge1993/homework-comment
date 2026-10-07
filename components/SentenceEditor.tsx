@@ -76,7 +76,7 @@ export function SentenceEditor({
     const mode = await requireVideoMode();
     let response: Response;
     if (mode.enabled) {
-      const blob = await uploadVideoToBlob(file, { kind: "demo", assignmentId });
+      const blob = await uploadVideoToBlob(file, { kind: "demo", assignmentId, presigned: mode.presigned });
       response = await fetch(`/api/assignments/${assignmentId}/demo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1,4 +1,5 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { issueSignedToken } from "@vercel/blob";
+import { handleUpload, handleUploadPresigned, type HandleUploadBody, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { getAssignment } from "@/lib/assignments";
 import { getStudentSession, requireTeacher } from "@/lib/auth";
 import { pathnameAllowed } from "@/lib/blob-path";
@@ -7,6 +8,8 @@ import { limits } from "@/lib/config";
 import { AppError, errorResponse } from "@/lib/errors";
 import { BLOB_NOT_CONFIGURED } from "@/lib/response-error";
 import { canRecordSentence, getStudentAssignment } from "@/lib/submissions";
+
+const VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "application/octet-stream"];
 
 export const runtime = "nodejs";
 
@@ -51,24 +54,55 @@ export async function GET() {
   return Response.json(videoStorageMode());
 }
 
+async function allowUpload(pathname: string, clientPayload: string | null) {
+  const claim = readClaim(clientPayload);
+  const allowed = await authorize(claim);
+  if (!pathnameAllowed(pathname, allowed.prefix)) throw new AppError("不能上传到这个位置");
+  return {
+    allowedContentTypes: VIDEO_TYPES,
+    maximumSizeInBytes: allowed.maxBytes,
+    addRandomSuffix: true as const,
+    tokenPayload: JSON.stringify({ kind: claim.kind, assignmentId: claim.assignmentId }),
+  };
+}
+
 export async function POST(request: Request) {
   try {
     if (!blobConfigured()) throw new AppError(BLOB_NOT_CONFIGURED);
+    const mode = videoStorageMode();
+    if (mode.presigned) {
+      const body = (await request.json()) as HandleUploadPresignedBody;
+      const json = await handleUploadPresigned({
+        body,
+        request,
+        getSignedToken: async (pathname, clientPayload) => {
+          const allowed = await allowUpload(pathname, clientPayload);
+          const validUntil = Date.now() + 60 * 60 * 1000;
+          const token = await issueSignedToken({
+            pathname,
+            operations: ["put"],
+            validUntil,
+            allowedContentTypes: allowed.allowedContentTypes,
+            maximumSizeInBytes: allowed.maximumSizeInBytes,
+          });
+          return {
+            token,
+            urlOptions: {
+              allowedContentTypes: allowed.allowedContentTypes,
+              maximumSizeInBytes: allowed.maximumSizeInBytes,
+              addRandomSuffix: allowed.addRandomSuffix,
+              validUntil,
+            },
+          };
+        },
+      });
+      return Response.json(json);
+    }
     const body = (await request.json()) as HandleUploadBody;
     const json = await handleUpload({
       body,
       request,
-      onBeforeGenerateToken: async (pathname, clientPayload) => {
-        const claim = readClaim(clientPayload);
-        const allowed = await authorize(claim);
-        if (!pathnameAllowed(pathname, allowed.prefix)) throw new AppError("不能上传到这个位置");
-        return {
-          allowedContentTypes: ["video/mp4", "video/webm", "video/quicktime", "application/octet-stream"],
-          maximumSizeInBytes: allowed.maxBytes,
-          addRandomSuffix: true,
-          tokenPayload: JSON.stringify({ kind: claim.kind, assignmentId: claim.assignmentId }),
-        };
-      },
+      onBeforeGenerateToken: async (pathname, clientPayload) => allowUpload(pathname, clientPayload),
     });
     return Response.json(json);
   } catch (error) {

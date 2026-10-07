@@ -1,5 +1,5 @@
 export const PAYLOAD_TOO_LARGE = "视频超过线上单次上传限制，没有保存";
-export const BLOB_NOT_CONFIGURED = "线上视频存储还没配置。请在 Vercel 添加 Private Blob，设置 BLOB_READ_WRITE_TOKEN，然后重新部署。";
+export const BLOB_NOT_CONFIGURED = "线上视频存储还没配置。请在 Vercel 添加 Private Blob 并连接到这个项目，然后重新部署。";
 
 export function messageFromBody(status: number, text: string, fallback: string): string {
   const trimmed = text.trim();

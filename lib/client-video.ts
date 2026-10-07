@@ -1,15 +1,15 @@
-import { upload } from "@vercel/blob/client";
+import { upload, uploadPresigned } from "@vercel/blob/client";
 import { videoExtension } from "./video-kind";
 import { BLOB_NOT_CONFIGURED, readJson } from "./response-error";
 
 const MULTIPART_FROM = 50 * 1024 * 1024;
 
-export type VideoUploadMode = { enabled: boolean; direct: boolean };
+export type VideoUploadMode = { enabled: boolean; direct: boolean; presigned: boolean };
 
 export async function videoUploadMode(): Promise<VideoUploadMode> {
   const response = await fetch("/api/blob/client", { cache: "no-store" });
   const mode = await readJson<VideoUploadMode>(response, "视频上传还没准备好");
-  return { enabled: Boolean(mode.enabled), direct: Boolean(mode.direct) };
+  return { enabled: Boolean(mode.enabled), direct: Boolean(mode.direct), presigned: Boolean(mode.presigned) };
 }
 
 function contentTypeFor(file: File): string | null {
@@ -31,13 +31,14 @@ function safeVideoName(name: string): string {
 
 export async function uploadVideoToBlob(
   file: File,
-  input: { kind: "demo" | "attempt"; assignmentId: number; sentenceId?: number },
+  input: { kind: "demo" | "attempt"; assignmentId: number; sentenceId?: number; presigned: boolean },
 ): Promise<{ url: string; pathname: string }> {
   const contentType = contentTypeFor(file);
   if (!contentType) throw new Error(input.kind === "demo" ? "布置视频只接受 mp4、webm、mov" : "这句视频只接受 mp4、webm、mov");
   const folder = input.kind === "demo" ? "demo" : "attempt";
+  const send = input.presigned ? uploadPresigned : upload;
   try {
-    const blob = await upload(`${folder}/${input.assignmentId}/${safeVideoName(file.name)}`, file, {
+    const blob = await send(`${folder}/${input.assignmentId}/${safeVideoName(file.name)}`, file, {
       access: "private",
       handleUploadUrl: "/api/blob/client",
       contentType,

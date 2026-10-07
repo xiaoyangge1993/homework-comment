@@ -72,7 +72,7 @@ turso db show homework-comment --url
 turso db tokens create homework-comment
 ```
 
-把 `--url` 的结果填进 `TURSO_DATABASE_URL`，令牌填进 `TURSO_AUTH_TOKEN`。地址是 `libsql://….turso.io`。应用用 `@libsql/client` 的 HTTP 接口访问这个库，沿用已有数据库和令牌，不必重建。Vercel 上没有这两个值时，页面会提示去设置，不会再把作业写进某个实例的临时文件。录音仍写在实例磁盘上，实例回收后文件不保留。视频走 Vercel Blob：在项目里建一个 Private Blob store，把 `BLOB_READ_WRITE_TOKEN` 配到 Production 后重新部署。没有这个值时，线上上传会提示存储还没配置，不会再把整段视频塞进函数请求。本地不填则仍写在 `data/video`。
+把 `--url` 的结果填进 `TURSO_DATABASE_URL`，令牌填进 `TURSO_AUTH_TOKEN`。地址是 `libsql://….turso.io`。应用用 `@libsql/client` 的 HTTP 接口访问这个库，沿用已有数据库和令牌，不必重建。Vercel 上没有这两个值时，页面会提示去设置，不会再把作业写进某个实例的临时文件。录音仍写在实例磁盘上，实例回收后文件不保留。视频走 Vercel Blob：在项目里建一个 Private Blob store 并连接到这个项目，Production 会出现 `BLOB_STORE_ID` 和 `BLOB_WEBHOOK_PUBLIC_KEY`，然后重新部署。没有这两项时，线上上传会提示存储还没配置，不会再把整段视频塞进函数请求。本地不填则仍写在 `data/video`。
 
 音频在 `data/audio/`，原视频在 `data/video/`，数据库在 `data/app.db`。数据库只存相对路径。这些目录不要提交。
 

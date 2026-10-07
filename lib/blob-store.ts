@@ -4,19 +4,24 @@ import { del, get, issueSignedToken, presignUrl, put } from "@vercel/blob";
 import fs from "fs";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
+import { videoStorageFromEnv, type VideoStorageMode } from "./blob-mode";
 import { readEnv } from "./env";
 import { AppError } from "./errors";
 import { remoteBlobPathname } from "./blob-path";
 
 const SIGNED_URL_MS = 60 * 60 * 1000;
 
-export function blobConfigured(): boolean {
-  return Boolean(readEnv("BLOB_READ_WRITE_TOKEN"));
+export function videoStorageMode(): VideoStorageMode {
+  return videoStorageFromEnv({
+    storeId: readEnv("BLOB_STORE_ID"),
+    token: readEnv("BLOB_READ_WRITE_TOKEN"),
+    webhookKey: readEnv("BLOB_WEBHOOK_PUBLIC_KEY"),
+    vercel: process.env.VERCEL,
+  });
 }
 
-export function videoStorageMode(): { enabled: boolean; direct: boolean } {
-  const enabled = blobConfigured();
-  return { enabled, direct: !enabled && !process.env.VERCEL };
+export function blobConfigured(): boolean {
+  return videoStorageMode().enabled;
 }
 
 export async function readBlobToFile(blobUrl: string, absolute: string): Promise<void> {
