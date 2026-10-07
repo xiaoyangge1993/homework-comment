@@ -7,7 +7,7 @@ import { storedReferenceState } from "./reference-store";
 import { syncDraft } from "./grading";
 import { attachSpeech } from "./tts";
 import { boardGroup, compareBoard, displayAverage, groupLabel, rhythmSummary, sentenceNeedsListen, type BoardGroup } from "./listen";
-import { wordsOf, type WordKind } from "./soe-parse";
+import { storedHeardText, wordsOf, type WordKind } from "./soe-parse";
 import { isFinalDirection, isIntonationStatus } from "./intonation";
 import type { AttemptView, ReviewSentence, RhythmLabel, SubmissionStatus } from "./types";
 
@@ -68,6 +68,7 @@ function toAttempt(row: AttemptRow | undefined): AttemptView | null {
     intonationStatus: isIntonationStatus(row.intonation_status) ? row.intonation_status : null,
     teacherFinal: isFinalDirection(row.teacher_final) ? row.teacher_final : null,
     rawJson: row.raw_json,
+    heardText: storedHeardText(row.raw_json),
     createdAt: row.created_at,
   };
 }

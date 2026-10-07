@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getDb } from "./db";
+import { storedHeardText } from "./soe-parse";
 import { AppError } from "./errors";
 import { isFinalDirection, isIntonationStatus } from "./intonation";
 import type { AttemptView, RhythmLabel, StudentAssignmentView, SubmissionStatus } from "./types";
@@ -141,6 +142,7 @@ export async function getStudentAssignment(
         intonationStatus: isIntonationStatus(row.intonation_status) ? row.intonation_status : null,
         teacherFinal: isFinalDirection(row.teacher_final) ? row.teacher_final : null,
         rawJson: row.raw_json,
+        heardText: storedHeardText(row.raw_json),
         createdAt: row.created_at,
       });
     }

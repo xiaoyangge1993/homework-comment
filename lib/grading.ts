@@ -22,7 +22,8 @@ import {
   applyRecheck,
   completionPercent,
   contentRecheckIndexes,
-  isFunctionWord,
+  lexiconText,
+  reconcileContentMisses,
   reconcileFunctionMisses,
 } from "./soe-judge";
 import { storedError, wordsOf, type ParsedWord } from "./soe-parse";
@@ -102,15 +103,28 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
 
   const rhythm = await measureRhythm(`wav/${attemptId}.wav`, row.reference_audio_path);
   const intonation = await attachIntonation(`wav/${attemptId}.wav`, row.reference_audio_path);
+  const started = Date.now();
+  const remaining = () => Math.max(0, limits.gradeBudgetMs - (Date.now() - started));
+  const heard =
+    remaining() > 2000
+      ? { called: true, ...(await recognizeEnglish(prepared.bytes, Math.min(8000, remaining()))) }
+      : { called: false, text: null as string | null, raw: null as unknown };
   if (!soeConfigured()) {
-    await writeGrade(attemptId, row.submission_id, rhythm, { error: EVALUATION_NOT_CONFIGURED }, null, null, null, intonation);
+    await writeGrade(
+      attemptId,
+      row.submission_id,
+      rhythm,
+      { error: EVALUATION_NOT_CONFIGURED, asr: heard.raw, asrText: blankHeard(heard.text) },
+      null,
+      null,
+      null,
+      intonation,
+    );
     return;
   }
 
-  const started = Date.now();
-  const remaining = () => Math.max(0, limits.gradeBudgetMs - (Date.now() - started));
-  const evaluated = await evaluateWav(row.text_en, prepared.bytes, { timeoutMs: Math.min(20_000, remaining()) });
-  const judged = await judgeSentence(row.text_en, prepared.bytes, evaluated, remaining);
+  const evaluated = await evaluateWav(lexiconText(row.text_en), prepared.bytes, { timeoutMs: Math.min(20_000, remaining()) });
+  const judged = await judgeSentence(row.text_en, prepared.bytes, evaluated, heard, remaining);
   await writeGrade(
     attemptId,
     row.submission_id,
@@ -131,11 +145,23 @@ async function attachIntonation(studentRelative: string, referencePath: string |
   }
 }
 
-async function judgeSentence(text: string, wav: Buffer, evaluated: Evaluation, remaining: () => number) {
+function blankHeard(text: string | null): string | null {
+  const trimmed = text?.trim() ?? "";
+  return trimmed || null;
+}
+
+async function judgeSentence(
+  text: string,
+  wav: Buffer,
+  evaluated: Evaluation,
+  heard: { called: boolean; text: string | null; raw: unknown },
+  remaining: () => number,
+) {
+  const asrText = blankHeard(heard.text);
   const scores = evaluated.scores;
   if (!scores.ok) {
     return {
-      raw: { sentence: evaluated.raw, error: scores.error ?? "评测失败" },
+      raw: { sentence: evaluated.raw, error: scores.error ?? "评测失败", asr: heard.raw, asrText },
       accuracy: null as number | null,
       fluency: null as number | null,
       completion: null as number | null,
@@ -143,24 +169,23 @@ async function judgeSentence(text: string, wav: Buffer, evaluated: Evaluation, r
   }
   const reference = scores.words.filter((word) => word.kind !== "extra");
   const tokens = englishTokens(text);
-  const base = { sentence: evaluated.raw, asr: null as unknown, wordChecks: [] as { word: string; raw: unknown }[] };
+  const base = { sentence: evaluated.raw, asr: heard.raw, asrText, wordChecks: [] as { word: string; raw: unknown }[] };
   if (reference.length !== tokens.length || tokens.length === 0) {
     return { raw: base, accuracy: scores.accuracy, fluency: scores.fluency, completion: null };
   }
 
   let kinds = reference.map((word) => word.kind);
   const aligned = () => reference.map((word, index) => ({ text: tokens[index] ?? word.word, kind: kinds[index] }));
-  if (aligned().some((token) => token.kind === "miss" && isFunctionWord(token.text)) && remaining() > 2000) {
-    const heard = await recognizeEnglish(wav, Math.min(8000, remaining()));
-    base.asr = heard.raw;
-    kinds = reconcileFunctionMisses(aligned(), { ran: true, text: heard.text });
+  if (aligned().some((token) => token.kind === "miss")) {
+    kinds = reconcileFunctionMisses(aligned(), { ran: heard.called, text: asrText });
+    kinds = reconcileContentMisses(aligned(), { ran: heard.called, text: asrText });
   }
 
   for (const index of contentRecheckIndexes(aligned(), limits.wordRecheckLimit)) {
     if (remaining() < 2000) break;
     const word = tokens[index] ?? "";
     if (!word) continue;
-    const checked = await evaluateWav(word, wav, { evalMode: 4, timeoutMs: Math.min(6000, remaining()) });
+    const checked = await evaluateWav(lexiconText(word), wav, { evalMode: 4, timeoutMs: Math.min(6000, remaining()) });
     base.wordChecks.push({ word, raw: checked.raw });
     kinds[index] = applyRecheck(kinds[index], wordModeWords(checked));
   }

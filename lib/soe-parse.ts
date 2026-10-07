@@ -169,6 +169,27 @@ export function storedError(rawJson: string | null): string | null {
   }
 }
 
+export function storedHeardText(rawJson: string | null): string | null {
+  if (!rawJson) return null;
+  try {
+    const payload = JSON.parse(rawJson) as { asrText?: unknown; asr?: unknown };
+    const direct = heardString(payload.asrText);
+    if (direct) return direct;
+    const asr = payload.asr;
+    if (!asr || typeof asr !== "object") return null;
+    const response = (asr as { Response?: { Result?: unknown } }).Response;
+    return heardString(response?.Result);
+  } catch {
+    return null;
+  }
+}
+
+function heardString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 export function wordsOf(rawJson: string | null): ParsedWord[] {
   if (!rawJson) return [];
   try {

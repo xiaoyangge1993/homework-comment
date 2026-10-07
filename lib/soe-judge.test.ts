@@ -5,8 +5,11 @@ import {
   completionPercent,
   contentRecheckIndexes,
   kindFromWordMode,
+  lexiconText,
+  reconcileContentMisses,
   reconcileFunctionMisses,
   scalePronAccuracy,
+  wordKey,
   type AlignedToken,
 } from "./soe-judge";
 
@@ -66,6 +69,9 @@ describe("word recheck", () => {
     assert.equal(applyRecheck("miss", [{ matchTag: 2, pronAccuracy: 0 }]), "miss");
     assert.equal(applyRecheck("wrong", [{ matchTag: 0, pronAccuracy: -1 }]), "wrong");
     assert.equal(applyRecheck("wrong", null), "wrong");
+    assert.equal(applyRecheck("wrong", [{ matchTag: 2, pronAccuracy: 0 }]), "wrong");
+    assert.equal(applyRecheck("miss", [{ matchTag: 0, pronAccuracy: 8.43 }]), "miss");
+    assert.equal(applyRecheck("miss", [{ matchTag: 0, pronAccuracy: 0.97 }]), "match");
     assert.equal(kindFromWordMode([{ matchTag: 1, pronAccuracy: -1 }]), null);
   });
 
@@ -85,5 +91,48 @@ describe("word recheck", () => {
     assert.equal(completionPercent(4, 1), 75);
     assert.equal(completionPercent(3, 0), 100);
     assert.equal(completionPercent(0, 0), null);
+  });
+});
+
+describe("spelling and content misses", () => {
+  const colour: AlignedToken[] = [
+    { text: "My", kind: "match" },
+    { text: "favourite", kind: "miss" },
+    { text: "colour", kind: "match" },
+    { text: "is", kind: "match" },
+    { text: "blue", kind: "match" },
+  ];
+
+  it("sends the lexicon spelling and keeps the textbook letters' case", () => {
+    assert.equal(wordKey("Favourite"), "favorite");
+    assert.equal(wordKey("color"), "color");
+    assert.equal(lexiconText("My favourite colour is blue."), "My favorite color is blue.");
+    assert.equal(lexiconText("The pandas are black and white."), "The pandas are black and white.");
+  });
+
+  it("clears a content miss when recognition heard the other spelling", () => {
+    const kinds = reconcileContentMisses(colour, { ran: true, text: "My favorite color is blue." });
+    assert.deepEqual(kinds, ["match", "match", "match", "match", "match"]);
+  });
+
+  it("keeps the miss when recognition also lacks the word", () => {
+    const kinds = reconcileContentMisses(colour, { ran: true, text: "My color is blue." });
+    assert.equal(kinds[1], "miss");
+  });
+
+  it("clears only as many copies as recognition heard", () => {
+    const tokens: AlignedToken[] = [
+      { text: "favourite", kind: "miss" },
+      { text: "and", kind: "match" },
+      { text: "favourite", kind: "miss" },
+    ];
+    const kinds = reconcileContentMisses(tokens, { ran: true, text: "favorite and" });
+    assert.deepEqual(kinds, ["match", "match", "miss"]);
+  });
+
+  it("leaves content misses unchanged when recognition fails", () => {
+    const kinds = reconcileContentMisses(colour, { ran: true, text: null });
+    assert.equal(kinds[1], "miss");
+    assert.equal(reconcileContentMisses(colour, { ran: false, text: "favorite" })[1], "miss");
   });
 });

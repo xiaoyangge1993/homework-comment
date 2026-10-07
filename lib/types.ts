@@ -44,6 +44,7 @@ export type AttemptView = {
   intonationStatus: IntonationStatus | null;
   teacherFinal: FinalDirection | null;
   rawJson: string | null;
+  heardText: string | null;
   createdAt: string;
 };
 

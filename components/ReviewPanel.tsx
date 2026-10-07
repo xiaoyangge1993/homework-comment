@@ -170,12 +170,14 @@ function ReviewSentenceCard({
         <div>
           <p className="muted">学生视频</p>
           <video ref={videoRef} controls playsInline preload="metadata" src={attempt.videoUrl} />
+          <HeardLine text={attempt.heardText} />
           <ScoreLine attempt={attempt} />
         </div>
       ) : attempt?.audioUrl ? (
         <div>
           <p className="muted">学生录音</p>
           <audio controls preload="none" src={attempt.audioUrl} />
+          <HeardLine text={attempt.heardText} />
           <ScoreLine attempt={attempt} />
         </div>
       ) : (
@@ -195,6 +197,15 @@ function pauseCardMates(event: { currentTarget: HTMLMediaElement }) {
   for (const node of card.querySelectorAll("audio, video")) {
     if (node !== event.currentTarget) (node as HTMLMediaElement).pause();
   }
+}
+
+function HeardLine({ text }: { text: string | null }) {
+  return (
+    <p className="heard">
+      <span className="muted">识别文本</span>
+      {text ? <span className="heard-text">{text}</span> : <span className="muted">这次评测没有识别文本</span>}
+    </p>
+  );
 }
 
 function ScoreLine({ attempt }: { attempt: NonNullable<ReviewSentence["attempt"]> }) {

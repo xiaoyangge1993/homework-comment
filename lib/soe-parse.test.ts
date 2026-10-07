@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseEvaluation, presentSentence } from "./soe-parse";
+import { parseEvaluation, presentSentence, storedHeardText } from "./soe-parse";
 import { buildSoeUrl } from "./soe-sign";
 
 const sample = {
@@ -159,6 +159,24 @@ describe("parseEvaluation", () => {
     assert.equal(view.marks.find((mark) => mark.text === "near")?.kind, "match");
     assert.deepEqual(view.uncertain, ["The"]);
     assert.deepEqual(view.extras, ["um"]);
+  });
+});
+
+describe("storedHeardText", () => {
+  it("reads the stored transcript, then an older recognition result", () => {
+    assert.equal(storedHeardText(JSON.stringify({ asrText: " My favorite food. " })), "My favorite food.");
+    assert.equal(
+      storedHeardText(JSON.stringify({ asr: { Response: { Result: "My favorite color is blue." } } })),
+      "My favorite color is blue.",
+    );
+    assert.equal(storedHeardText(JSON.stringify({ asrText: "kept", asr: { Response: { Result: "ignored" } } })), "kept");
+  });
+
+  it("returns null for a failed recognition, a blank string, and invalid json", () => {
+    assert.equal(storedHeardText(JSON.stringify({ asrText: null, asr: { error: "语音识别失败" } })), null);
+    assert.equal(storedHeardText(JSON.stringify({ asrText: "  ", asr: { Response: { Result: "" } } })), null);
+    assert.equal(storedHeardText("not json"), null);
+    assert.equal(storedHeardText(null), null);
   });
 });
 
