@@ -122,7 +122,13 @@ function SentenceCard({
       {sentence.referenceUrl ? (
         <div>
           <p className="muted">老师标准音</p>
-          <audio controls preload="none" src={sentence.referenceUrl} />
+          <audio
+            key={`${sentence.referenceUrl}:${attempt?.id ?? "none"}`}
+            controls
+            preload="none"
+            src={sentence.referenceUrl}
+            onPlay={pauseCardMates}
+          />
         </div>
       ) : (
         <p className="muted">老师这句没录标准音，可以直接读。</p>
@@ -161,6 +167,14 @@ function SentenceCard({
       )}
     </article>
   );
+}
+
+function pauseCardMates(event: { currentTarget: HTMLMediaElement }) {
+  const card = event.currentTarget.closest("article");
+  if (!card) return;
+  for (const node of card.querySelectorAll("audio, video")) {
+    if (node !== event.currentTarget) (node as HTMLMediaElement).pause();
+  }
 }
 
 function audioFile(blob: Blob): File {

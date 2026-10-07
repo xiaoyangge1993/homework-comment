@@ -141,7 +141,7 @@ function ReviewSentenceCard({
       {sentence.referenceUrl ? (
         <div>
           <p className="muted">标准音</p>
-          <audio controls preload="none" src={sentence.referenceUrl} />
+          <audio controls preload="none" src={sentence.referenceUrl} onPlay={pauseCardMates} />
         </div>
       ) : null}
       {attempt?.videoUrl ? (
@@ -165,6 +165,14 @@ function ReviewSentenceCard({
       </label>
     </article>
   );
+}
+
+function pauseCardMates(event: { currentTarget: HTMLMediaElement }) {
+  const card = event.currentTarget.closest("article");
+  if (!card) return;
+  for (const node of card.querySelectorAll("audio, video")) {
+    if (node !== event.currentTarget) (node as HTMLMediaElement).pause();
+  }
 }
 
 function ScoreLine({ attempt }: { attempt: NonNullable<ReviewSentence["attempt"]> }) {

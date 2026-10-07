@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { audioRoot } from "./audio";
+import { resolveByteRange } from "./byte-range";
 import { dataDir } from "./db";
 import { AppError } from "./errors";
 import { commandWorks, durationSeconds, remuxFaststart, transcodePlayableMp4, transcodeWav, videoCodec } from "./media";
@@ -46,34 +47,22 @@ export function videoFileResponse(relativePath: string, request: Request): Respo
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, no-store",
   };
-  const range = request.headers.get("range");
-  if (!range) {
+  const range = resolveByteRange(size, request.headers.get("range"));
+  if (range.kind === "unsatisfiable") {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+  }
+  if (range.kind === "all") {
     return new Response(Readable.toWeb(fs.createReadStream(full)) as ReadableStream, {
       status: 200,
       headers: { ...headers, "Content-Length": String(size) },
     });
   }
-  const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-  if (!match || size === 0) {
-    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
-  }
-  let start = match[1] ? Number(match[1]) : 0;
-  let end = match[2] ? Number(match[2]) : size - 1;
-  if (match[1] === "" && match[2]) {
-    const suffix = Number(match[2]);
-    start = Math.max(0, size - suffix);
-    end = size - 1;
-  }
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
-    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
-  }
-  end = Math.min(end, size - 1);
-  return new Response(Readable.toWeb(fs.createReadStream(full, { start, end })) as ReadableStream, {
+  return new Response(Readable.toWeb(fs.createReadStream(full, { start: range.start, end: range.end })) as ReadableStream, {
     status: 206,
     headers: {
       ...headers,
-      "Content-Length": String(end - start + 1),
-      "Content-Range": `bytes ${start}-${end}/${size}`,
+      "Content-Length": String(range.end - range.start + 1),
+      "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
     },
   });
 }

@@ -3,6 +3,8 @@ import "server-only";
 import { randomBytes } from "crypto";
 import fs from "fs";
 import path from "path";
+import { Readable } from "stream";
+import { resolveByteRange } from "./byte-range";
 import { dataDir } from "./db";
 
 export function audioRoot(): string {
@@ -52,14 +54,31 @@ export function contentTypeFor(filePath: string): string {
   }
 }
 
-export function audioResponse(relativePath: string): Response {
+export function audioResponse(relativePath: string, request: Request): Response {
   const full = resolveAudio(relativePath);
   if (!full) return new Response("找不到音频", { status: 404 });
-  const bytes = fs.readFileSync(full);
-  return new Response(bytes, {
+  const size = fs.statSync(full).size;
+  const headers = {
+    "Content-Type": contentTypeFor(full),
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, no-store",
+  };
+  const range = resolveByteRange(size, request.headers.get("range"));
+  if (range.kind === "unsatisfiable") {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+  }
+  if (range.kind === "all") {
+    return new Response(Readable.toWeb(fs.createReadStream(full)) as ReadableStream, {
+      status: 200,
+      headers: { ...headers, "Content-Length": String(size) },
+    });
+  }
+  return new Response(Readable.toWeb(fs.createReadStream(full, { start: range.start, end: range.end })) as ReadableStream, {
+    status: 206,
     headers: {
-      "Content-Type": contentTypeFor(full),
-      "Cache-Control": "private, no-store",
+      ...headers,
+      "Content-Length": String(range.end - range.start + 1),
+      "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
     },
   });
 }
