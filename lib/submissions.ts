@@ -33,6 +33,19 @@ export async function joinStudent(
   return { studentId: Number(info.lastInsertRowid), classId: cls.id, displayName };
 }
 
+export async function getDefaultJoinCode(): Promise<string | null> {
+  const db = await getDb();
+  const row = (await db
+    .prepare(
+      `SELECT join_code FROM class
+       WHERE join_code IS NOT NULL AND join_code != ''
+       ORDER BY id
+       LIMIT 1`,
+    )
+    .get()) as { join_code: string } | undefined;
+  return row?.join_code ?? null;
+}
+
 export async function listOpenAssignments(classId: number) {
   const db = await getDb();
   return (await db

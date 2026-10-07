@@ -2,7 +2,7 @@ import { JoinForm } from "@/components/JoinForm";
 import { LogoutButton } from "@/components/LogoutButton";
 import { getStudentSession } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
-import { listOpenAssignments } from "@/lib/submissions";
+import { getDefaultJoinCode, listOpenAssignments } from "@/lib/submissions";
 
 export default async function JoinPage({
   searchParams,
@@ -28,12 +28,20 @@ export default async function JoinPage({
         ) : (
           <>
             <p className="muted">输入老师给你的班级码和你的姓名。</p>
-            <JoinForm next={next} initialCode={params.code} />
+            <JoinForm next={next} initialCode={params.code || (await prefilledJoinCode())} />
           </>
         )}
       </main>
     </>
   );
+}
+
+async function prefilledJoinCode(): Promise<string | undefined> {
+  try {
+    return (await getDefaultJoinCode()) ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function AssignmentList({ classId }: { classId: number }) {
