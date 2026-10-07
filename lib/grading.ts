@@ -1,8 +1,11 @@
 import "server-only";
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { audioRoot, resolveAudio } from "./audio";
+import { isRemoteVideoPath } from "./blob-path";
+import { readBlobToFile } from "./blob-store";
 import { recognizeEnglish } from "./asr";
 import { INAUDIBLE_ERROR, limits } from "./config";
 import { getDb } from "./db";
@@ -255,19 +258,45 @@ function isPcm16k(relative: string | null): boolean {
   return Boolean(file && pcm16kWav(file));
 }
 
+async function openStoredVideo(stored: string): Promise<{ absolute: string; close: () => void } | null> {
+  if (!isRemoteVideoPath(stored)) {
+    const local = resolveVideo(stored);
+    if (!local) return null;
+    return { absolute: local, close: () => undefined };
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hw-grade-"));
+  const ext = path.extname(new URL(stored).pathname) || ".mp4";
+  const absolute = path.join(dir, `source${ext}`);
+  try {
+    await readBlobToFile(stored, absolute);
+  } catch {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return null;
+  }
+  return {
+    absolute,
+    close: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
 async function extractAttemptAudio(
   attemptId: number,
-  videoRelative: string,
+  videoStored: string,
 ): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
-  const video = resolveVideo(videoRelative);
-  if (!video) return { ok: false, error: "找不到视频" };
-  if (!(await commandWorks("ffmpeg"))) return { ok: false, error: "需要安装 ffmpeg 才能评测" };
+  const opened = await openStoredVideo(videoStored);
+  if (!opened) return { ok: false, error: "找不到视频" };
+  if (!(await commandWorks("ffmpeg"))) {
+    opened.close();
+    return { ok: false, error: "需要安装 ffmpeg 才能评测" };
+  }
   const wavPath = path.join(audioRoot(), "wav", `${attemptId}.wav`);
   try {
-    const relative = await extractWav(video, wavPath, 60_000);
+    const relative = await extractWav(opened.absolute, wavPath, 60_000);
     return { ok: true, path: relative };
   } catch {
     return { ok: false, error: "音频转换失败" };
+  } finally {
+    opened.close();
   }
 }
 

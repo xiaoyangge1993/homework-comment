@@ -10,6 +10,9 @@ import { AppError } from "./errors";
 import { missingEnvMessage, readEnv } from "./env";
 import { countWords, mergeText, pairSentences, splitChineseOnce, splitOnce, tooLong } from "./sentences";
 import type { AssignmentStatus, SentenceDTO } from "./types";
+import { blobUploadMatches } from "./blob-path";
+import { removeBlob } from "./blob-store";
+import { stageRemoteVideo } from "./remote-video";
 import { acceptVideoUpload, extractWav } from "./video";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -261,6 +264,54 @@ export async function saveDemoVideo(
   await db
     .prepare("UPDATE assignment SET demo_video_path = ?, demo_audio_path = ? WHERE id = ?")
     .run(stored.relative, audioRelative, assignmentId);
+}
+
+export async function saveDemoFromBlob(
+  assignmentId: number,
+  source: { blobUrl: string; pathname: string },
+): Promise<void> {
+  const detail = await getAssignment(assignmentId);
+  const prefix = `demo/${assignmentId}`;
+  if (detail.status !== "draft") {
+    if (blobUploadMatches({ blobUrl: source.blobUrl, pathname: source.pathname, prefix })) await removeBlob(source.blobUrl);
+    throw new AppError("发布后不能再换布置视频");
+  }
+  const existing = await demoVideoPath(assignmentId);
+  const staged = await stageRemoteVideo({
+    blobUrl: source.blobUrl,
+    pathname: source.pathname,
+    prefix,
+    maxBytes: limits.maxDemoVideoBytes,
+    maxSeconds: limits.maxDemoVideoSeconds,
+    playbackTimeout: 240_000,
+    badType: "布置视频只接受 mp4、webm、mov",
+    tooBig: "布置视频不能超过 200MB",
+    tooLong: "布置视频不能超过 5 分钟",
+    unreadable: "读不出视频时长",
+    missingFfmpeg: "需要安装 ffmpeg 才能处理布置视频",
+  });
+  const wavAbsolute = path.join(audioRoot(), "demo", String(assignmentId), `${Date.now()}.wav`);
+  let audioRelative: string | null = null;
+  let saved = false;
+  try {
+    try {
+      audioRelative = await extractWav(staged.localPath, wavAbsolute, 120_000);
+    } catch {
+      throw new AppError("抽不出布置视频的音轨");
+    }
+    const db = await getDb();
+    await db
+      .prepare("UPDATE assignment SET demo_video_path = ?, demo_audio_path = ? WHERE id = ?")
+      .run(staged.playbackUrl, audioRelative, assignmentId);
+    saved = true;
+    await staged.finish("keep", existing?.path ?? null);
+  } catch (error) {
+    if (!saved) {
+      await staged.finish("discard");
+      if (audioRelative) fsUnlink(path.join(audioRoot(), audioRelative));
+    }
+    throw error;
+  }
 }
 
 function fsUnlink(file: string) {

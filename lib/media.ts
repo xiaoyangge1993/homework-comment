@@ -6,6 +6,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { readEnv } from "./env";
 import { prepareExecutable, resolveBinary } from "./ffmpeg-bin";
+import { codecFromFfmpegLog } from "./playback-plan";
 import { hasInternalPause } from "./rhythm";
 import { decodePcmWav, pcmHasInternalPause } from "./wav";
 
@@ -73,6 +74,58 @@ export async function transcodeWav(input: string, output: string, timeout = 3000
   await exec(
     resolveTool("ffmpeg"),
     ["-y", "-i", input, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output],
+    { timeout, env: commandEnv() },
+  );
+}
+
+export async function videoCodec(file: string): Promise<string | null> {
+  let log = "";
+  try {
+    const { stderr } = await exec(resolveTool("ffmpeg"), ["-hide_banner", "-i", file], {
+      timeout: 20000,
+      env: commandEnv(),
+    });
+    log = String(stderr ?? "");
+  } catch (error) {
+    log = error instanceof Error && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
+  }
+  return codecFromFfmpegLog(log);
+}
+
+export async function remuxFaststart(input: string, output: string, timeout: number): Promise<void> {
+  await exec(resolveTool("ffmpeg"), ["-y", "-i", input, "-c", "copy", "-movflags", "+faststart", output], {
+    timeout,
+    env: commandEnv(),
+  });
+}
+
+export async function transcodePlayableMp4(input: string, output: string, timeout: number): Promise<void> {
+  await exec(
+    resolveTool("ffmpeg"),
+    [
+      "-y",
+      "-i",
+      input,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a:0",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "28",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      output,
+    ],
     { timeout, env: commandEnv() },
   );
 }

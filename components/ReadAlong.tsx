@@ -2,7 +2,9 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { requireVideoMode, uploadVideoToBlob } from "@/lib/client-video";
 import { limits } from "@/lib/config";
+import { readJson } from "@/lib/response-error";
 import type { AttemptView, StudentAssignmentView } from "@/lib/types";
 import { MarkedSentence } from "./MarkedSentence";
 import { Recorder } from "./Recorder";
@@ -19,14 +21,27 @@ export function ReadAlong({
   const done = view.sentences.filter((sentence) => sentence.attempt).length;
 
   async function upload(sentenceId: number, file: File, kind: "audio" | "video") {
+    if (kind === "video") {
+      const mode = await requireVideoMode();
+      if (mode.enabled) {
+        const blob = await uploadVideoToBlob(file, { kind: "attempt", assignmentId: view.id, sentenceId });
+        const response = await fetch("/api/attempts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignmentId: view.id, sentenceId, blobUrl: blob.url, pathname: blob.pathname }),
+        });
+        await readJson(response, "提交失败");
+        router.refresh();
+        return;
+      }
+    }
     const form = new FormData();
     form.set("assignmentId", String(view.id));
     form.set("sentenceId", String(sentenceId));
     form.set("kind", kind);
     form.set("file", file);
     const response = await fetch("/api/attempts", { method: "POST", body: form });
-    const body = (await response.json()) as { error?: string };
-    if (!response.ok) throw new Error(body.error || "提交失败");
+    await readJson(response, "提交失败");
     router.refresh();
   }
 

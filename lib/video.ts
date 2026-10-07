@@ -7,7 +7,8 @@ import { Readable } from "stream";
 import { audioRoot } from "./audio";
 import { dataDir } from "./db";
 import { AppError } from "./errors";
-import { commandWorks, durationSeconds, transcodeWav } from "./media";
+import { commandWorks, durationSeconds, remuxFaststart, transcodePlayableMp4, transcodeWav, videoCodec } from "./media";
+import { playbackAction } from "./playback-plan";
 import { videoExtension, type VideoExt } from "./video-kind";
 
 export function videoRoot(): string {
@@ -94,11 +95,7 @@ function removeFile(file: string) {
   }
 }
 
-export async function acceptVideoUpload(input: {
-  subdir: string;
-  filename: string;
-  mime: string;
-  bytes: Buffer;
+type VideoCheck = {
   maxBytes: number;
   maxSeconds: number;
   badType: string;
@@ -106,22 +103,68 @@ export async function acceptVideoUpload(input: {
   tooLong: string;
   unreadable: string;
   missingFfmpeg: string;
+};
+
+async function assertPlayable(absolute: string, input: Pick<VideoCheck, "maxSeconds" | "tooLong" | "unreadable" | "missingFfmpeg">) {
+  if (!(await commandWorks("ffmpeg"))) throw new AppError(input.missingFfmpeg);
+  const seconds = await durationSeconds(absolute);
+  if (!seconds) throw new AppError(input.unreadable);
+  if (seconds > input.maxSeconds) throw new AppError(input.tooLong);
+}
+
+export async function inspectVideoFile(absolute: string, filename: string, mime: string, input: VideoCheck): Promise<void> {
+  const ext = videoExtension(filename, mime) ?? videoExtension(filename, "");
+  if (!ext) throw new AppError(input.badType);
+  const size = fs.statSync(absolute).size;
+  if (size <= 0) throw new AppError(input.badType);
+  if (size > input.maxBytes) throw new AppError(input.tooBig);
+  await assertPlayable(absolute, input);
+}
+
+export async function acceptVideoUpload(input: VideoCheck & {
+  subdir: string;
+  filename: string;
+  mime: string;
+  bytes: Buffer;
 }): Promise<{ relative: string; absolute: string }> {
   const ext = videoExtension(input.filename, input.mime) ?? videoExtension(input.filename, "");
   if (!ext) throw new AppError(input.badType);
   if (input.bytes.length > input.maxBytes) throw new AppError(input.tooBig);
-  if (!(await commandWorks("ffmpeg"))) throw new AppError(input.missingFfmpeg);
   const stored = saveVideoFile(input.subdir, ext, input.bytes);
-  const seconds = await durationSeconds(stored.absolute);
-  if (!seconds) {
+  try {
+    await assertPlayable(stored.absolute, input);
+  } catch (error) {
     removeFile(stored.absolute);
-    throw new AppError(input.unreadable);
-  }
-  if (seconds > input.maxSeconds) {
-    removeFile(stored.absolute);
-    throw new AppError(input.tooLong);
+    throw error;
   }
   return stored;
+}
+
+// Phone albums are often HEVC. Chrome paints a broken icon unless the file is H.264 or WebM.
+export async function buildPlaybackFile(
+  input: string,
+  directory: string,
+  timeout: number,
+): Promise<{ absolute: string; contentType: string }> {
+  const ext = path.extname(input).replace(/^\./, "").toLowerCase();
+  const action = playbackAction(await videoCodec(input), ext);
+  if (action === "keep-webm") return { absolute: input, contentType: "video/webm" };
+  const output = path.join(directory, "playback.mp4");
+  if (action === "remux-mp4") {
+    try {
+      await remuxFaststart(input, output, timeout);
+      if (fs.existsSync(output) && fs.statSync(output).size > 0) {
+        return { absolute: output, contentType: "video/mp4" };
+      }
+    } catch {
+      /* the copy could not move the index forward; encode instead */
+    }
+  }
+  await transcodePlayableMp4(input, output, timeout);
+  if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
+    throw new AppError("这段视频转成可播放的格式失败");
+  }
+  return { absolute: output, contentType: "video/mp4" };
 }
 
 export async function extractWav(videoAbsolute: string, wavAbsolute: string, timeout: number): Promise<string> {

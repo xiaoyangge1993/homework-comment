@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { requireVideoMode, uploadVideoToBlob } from "@/lib/client-video";
 import { limits } from "@/lib/config";
 import type { SentenceDTO } from "@/lib/types";
 import { countWords } from "@/lib/sentences";
+import { readJson } from "@/lib/response-error";
 import { Recorder } from "./Recorder";
 import { VideoCapture } from "./VideoCapture";
 
@@ -71,12 +73,22 @@ export function SentenceEditor({
   }
 
   async function uploadDemo(file: File) {
-    const form = new FormData();
-    form.set("kind", "video");
-    form.set("file", file);
-    const response = await fetch(`/api/assignments/${assignmentId}/demo`, { method: "POST", body: form });
-    const payload = (await response.json()) as { error?: string; url?: string };
-    if (!response.ok) throw new Error(payload.error || "布置视频保存失败");
+    const mode = await requireVideoMode();
+    let response: Response;
+    if (mode.enabled) {
+      const blob = await uploadVideoToBlob(file, { kind: "demo", assignmentId });
+      response = await fetch(`/api/assignments/${assignmentId}/demo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blobUrl: blob.url, pathname: blob.pathname }),
+      });
+    } else {
+      const form = new FormData();
+      form.set("kind", "video");
+      form.set("file", file);
+      response = await fetch(`/api/assignments/${assignmentId}/demo`, { method: "POST", body: form });
+    }
+    const payload = await readJson<{ url?: string }>(response, "布置视频保存失败");
     setDemoUrl(`${payload.url || `/api/video/demo/${assignmentId}`}?v=${Date.now()}`);
     setMessage("布置视频已保存");
     router.refresh();

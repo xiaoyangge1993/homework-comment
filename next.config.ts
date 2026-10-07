@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
     "/api/attempts/[id]/retry": [ffmpegPackage],
   },
   experimental: {
+    // These raise Next's own parser limits for a long-running server.
+    // Vercel still rejects a function body over 4.5MB before this code runs.
     serverActions: {
       bodySizeLimit: "200mb",
     },
