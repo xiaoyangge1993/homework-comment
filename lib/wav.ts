@@ -114,6 +114,47 @@ export function pcmHasInternalPause(samples: Int16Array, sampleRate: number): bo
   return runStart >= 0 && isInternal(runStart, total, total);
 }
 
+export function trimEdgeSilence(samples: Int16Array, sampleRate: number): Int16Array {
+  if (sampleRate < 1 || samples.length === 0) return samples.subarray(0, 0);
+  const frame = Math.max(1, Math.round(sampleRate * 0.02));
+  const silence = 32768 * 10 ** (limits.silenceTrimDb / 20);
+  let first = -1;
+  let last = -1;
+  for (let offset = 0; offset < samples.length; offset += frame) {
+    const end = Math.min(samples.length, offset + frame);
+    if (frameRms(samples, offset, end) < silence) continue;
+    if (first < 0) first = offset;
+    last = end;
+  }
+  if (first < 0 || last < 0) return samples.subarray(0, 0);
+  const pad = Math.round(sampleRate * limits.silencePadSeconds);
+  const start = Math.max(0, first - pad);
+  const end = Math.min(samples.length, last + pad);
+  return samples.subarray(start, end);
+}
+
+export function rmsDbfs(samples: Int16Array): number | null {
+  if (samples.length === 0) return null;
+  let energy = 0;
+  for (let index = 0; index < samples.length; index += 1) energy += samples[index] * samples[index];
+  const rms = Math.sqrt(energy / samples.length);
+  if (rms <= 0) return Number.NEGATIVE_INFINITY;
+  return 20 * Math.log10(rms / 32768);
+}
+
+export function isInaudible(samples: Int16Array, sampleRate: number): boolean {
+  if (sampleRate < 1 || samples.length === 0) return true;
+  if (samples.length / sampleRate < limits.minSpeechSeconds) return true;
+  const level = rmsDbfs(samples);
+  return level == null || level < limits.lowVolumeRmsDb;
+}
+
+function frameRms(samples: Int16Array, offset: number, end: number): number {
+  let energy = 0;
+  for (let index = offset; index < end; index += 1) energy += samples[index] * samples[index];
+  return Math.sqrt(energy / (end - offset));
+}
+
 function isInternal(start: number, end: number, total: number): boolean {
   if (start < 0.2) return false;
   if (end > total - 0.2) return false;

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { buildDraft, type DraftSentence } from "./draft";
 
 function good(index: number): DraftSentence {
-  return { index, accuracy: 92, evaluated: true, missed: [], wrong: [], unlisted: [], rhythm: "接近" };
+  return { index, accuracy: 92, evaluated: true, inaudible: false, missed: [], wrong: [], rhythm: "接近" };
 }
 
 describe("buildDraft", () => {
@@ -28,6 +28,12 @@ describe("buildDraft", () => {
     const text = buildDraft([{ ...good(1), rhythm: "停顿偏长" }, good(2)]);
     assert.match(text, /跟读时停顿偏长，试着跟上老师的节奏再读一次/);
     assert.doesNotMatch(text, /可以过/);
+  });
+
+  it("asks the teacher to listen when the recording is too quiet", () => {
+    const text = buildDraft([{ ...good(1), accuracy: null, evaluated: false, inaudible: true }]);
+    assert.match(text, /第 1 句听不清，请老师亲听/);
+    assert.doesNotMatch(text, /漏了/);
   });
 
   it("does not invent a score when evaluation is missing", () => {

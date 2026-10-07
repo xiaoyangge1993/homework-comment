@@ -93,10 +93,13 @@
 
 ### 口语评测：腾讯云智聆口语评测（新版）
 
-- 英文句子模式 `eval_mode = 1`，引擎 `16k_en`。
-- `ref_text` 为该句英文。文本 ≤ 30 词，音频 ≤ 60 秒。
-- 取建议分或准确度、流利度、完整度，以及词级 `MatchTag`：0 匹配，1 多读，2 漏读，3 错读。
-- 密钥：`TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_SOE_APPID`。未配置时，开发环境返回明确错误「评测未配置」，页面仍可录音和回放。
+- 英文句子模式 `eval_mode = 1`，引擎 `16k_en`，苛刻指数 `score_coeff = 1.5`。
+- `ref_text` 为该句英文。文本 ≤ 30 词，音频 ≤ 60 秒。评测前把音轨转成 16 kHz、16 bit、单声道 wav，并去掉首尾静音。音量过低记「听不清」，不打分。
+- 句级准确度取 `PronAccuracy`，流利度取 `PronFluency`。不用 `SuggestedScore` 决定漏读和错读。完整度按非漏读词数除以课文词数计算。
+- 词级：`MatchTag` 2 为漏读，3 或课文词 `PronAccuracy` 为 -1 为错读，0 且准确度低于 40 也是错读，1 为多读，4 忽略。
+- the、a、and 等功能词，要智聆和同一段音频的英文一句话识别都判缺，才标成漏读。两路不一致标「不确定」，不写入自动点评。
+- 仍判漏读或错读的实词，再用单词纠错模式 `eval_mode = 4` 评一次。句子模式、识别和单词复核的原始 JSON 都存下来。
+- 密钥：`TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_SOE_APPID`。一句话识别使用同一对密钥，需要另行开通语音识别。未配置时，开发环境返回明确错误「评测未配置」，页面仍可录音和回放。
 - 官方文档：https://cloud.tencent.com/document/product/1774/107373
 
 ### 语音合成

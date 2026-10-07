@@ -5,7 +5,7 @@ import { AppError } from "./errors";
 import { syncDraft } from "./grading";
 import { attachSpeech } from "./tts";
 import { boardGroup, compareBoard, displayAverage, groupLabel, rhythmSummary, sentenceNeedsListen, type BoardGroup } from "./listen";
-import { wordsOf } from "./soe-parse";
+import { wordsOf, type WordKind } from "./soe-parse";
 import type { AttemptView, ReviewSentence, RhythmLabel, SubmissionStatus } from "./types";
 
 export type BoardRow = {
@@ -88,7 +88,7 @@ export async function loadBoard(assignmentId: number): Promise<{ rows: BoardRow[
         fluency: attempt?.fluency ?? null,
         completion: attempt?.completion ?? null,
         rhythm: attempt?.rhythm ?? null,
-        matchTags: wordsOf(attempt?.raw_json ?? null).map((word) => word.matchTag),
+        ...listenFlags(wordsOf(attempt?.raw_json ?? null)),
       };
     });
     const group = boardGroup(submission.status, listened);
@@ -149,13 +149,12 @@ export async function loadReview(assignmentId: number, submissionId: number) {
   const attempts = await latestAttempts(submissionId);
   const reviewSentences: ReviewSentence[] = sentences.map((sentence) => {
     const attempt = toAttempt(attempts.get(sentence.id));
-    const tags = wordsOf(attempt?.rawJson ?? null).map((word) => word.matchTag);
     const needsListen = sentenceNeedsListen({
       accuracy: attempt?.accuracy ?? null,
       fluency: attempt?.fluency ?? null,
       completion: attempt?.completion ?? null,
       rhythm: attempt?.rhythm ?? null,
-      matchTags: tags,
+      ...listenFlags(wordsOf(attempt?.rawJson ?? null)),
     });
     return {
       id: sentence.id,
@@ -176,6 +175,14 @@ export async function loadReview(assignmentId: number, submissionId: number) {
     decision: review?.decision ?? null,
     ttsUrl: review?.tts_audio_path ? `/api/audio/review/${submissionId}` : null,
     sentences: reviewSentences,
+  };
+}
+
+function listenFlags(words: { kind: WordKind }[]): { missed: boolean; wrong: boolean; uncertain: boolean } {
+  return {
+    missed: words.some((word) => word.kind === "miss"),
+    wrong: words.some((word) => word.kind === "wrong"),
+    uncertain: words.some((word) => word.kind === "uncertain"),
   };
 }
 

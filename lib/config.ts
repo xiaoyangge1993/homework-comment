@@ -8,6 +8,25 @@ export const limits = {
   rhythmSlowAbove: 1.4,
   pauseSeconds: 0.8,
   soeScoreCoeff: 1.5,
+  pronWrongBelow: 40,
+  silenceTrimDb: -35,
+  silencePadSeconds: 0.1,
+  lowVolumeRmsDb: -32,
+  minSpeechSeconds: 0.3,
+  wordRecheckLimit: 8,
+  gradeBudgetMs: 45_000,
+  functionWords: [
+    "a", "an", "the",
+    "and", "or", "but",
+    "of", "to", "in", "on", "at", "for", "from", "with", "by", "as", "into", "onto",
+    "am", "is", "are", "was", "were", "be", "been",
+    "do", "does", "did", "has", "have", "had",
+    "will", "can",
+    "i", "you", "he", "she", "it", "we", "they",
+    "me", "him", "her", "us", "them",
+    "my", "your", "his", "its", "our", "their",
+    "not", "so",
+  ],
   draftMaxChars: 80,
   ttsSpeed: -1,
   maxAudioBytes: 8 * 1024 * 1024,
@@ -16,3 +35,5 @@ export const limits = {
   maxSentenceVideoBytes: 80 * 1024 * 1024,
   maxSentenceVideoSeconds: 60,
 };
+
+export const INAUDIBLE_ERROR = "听不清";

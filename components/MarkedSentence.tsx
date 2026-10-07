@@ -17,8 +17,13 @@ export function MarkedSentence({
       <p className="sentence-en">
         {presented.marks.map((mark, index) => {
           const seekable =
-            Boolean(onSeek) && (mark.kind === "miss" || mark.kind === "wrong") && typeof mark.beginMs === "number";
-          const className = mark.kind === "miss" || mark.kind === "wrong" || mark.kind === "oov" ? `mark-${mark.kind}` : undefined;
+            Boolean(onSeek) &&
+            (mark.kind === "miss" || mark.kind === "wrong" || mark.kind === "uncertain") &&
+            typeof mark.beginMs === "number";
+          const className =
+            mark.kind === "miss" || mark.kind === "wrong" || mark.kind === "uncertain" || mark.kind === "oov"
+              ? `mark-${mark.kind}`
+              : undefined;
           if (!seekable || mark.beginMs == null) {
             return (
               <span key={index} className={className}>
@@ -40,6 +45,7 @@ export function MarkedSentence({
         })}
       </p>
       {presented.extras.length > 0 ? <p>多读：{presented.extras.join("、")}</p> : null}
+      {presented.uncertain.length > 0 ? <p>不确定：{presented.uncertain.join("、")}</p> : null}
     </>
   );
 }

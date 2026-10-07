@@ -2,8 +2,12 @@ import { limits } from "./config";
 
 const WORD = /[A-Za-z]+(?:'[A-Za-z]+)*/g;
 
+export function englishTokens(text: string): string[] {
+  return text.match(WORD) ?? [];
+}
+
 export function countWords(text: string): number {
-  return text.match(WORD)?.length ?? 0;
+  return englishTokens(text).length;
 }
 
 export function tooLong(text: string): boolean {

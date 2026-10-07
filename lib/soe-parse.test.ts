@@ -24,6 +24,7 @@ describe("parseEvaluation", () => {
     const parsed = parseEvaluation(sample);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.accuracy, 82.2);
+    assert.notEqual(parsed.accuracy, 55);
     assert.equal(parsed.fluency, 90);
     assert.equal(parsed.completion, 50);
     assert.deepEqual(
@@ -102,6 +103,62 @@ describe("parseEvaluation", () => {
     assert.equal(view.marks.find((mark) => mark.text === "are")?.kind, "miss");
     assert.equal(view.marks.find((mark) => mark.text === "cute")?.kind, "wrong");
     assert.deepEqual(view.extras, ["very"]);
+    assert.deepEqual(view.uncertain, []);
+  });
+
+  it("marks a low score or a missing word score as wrong and ignores unlisted words", () => {
+    const parsed = parseEvaluation({
+      result: {
+        PronAccuracy: 70,
+        PronFluency: 0.8,
+        PronCompletion: 1,
+        Words: [
+          { Word: "bus", MatchTag: 0, PronAccuracy: -1 },
+          { Word: "stop", MatchTag: 0, PronAccuracy: 39 },
+          { Word: "near", MatchTag: 0, PronAccuracy: 40 },
+          { Word: "zoo", MatchTag: 4, PronAccuracy: 10 },
+          { Word: "um", MatchTag: 1, PronAccuracy: -1 },
+        ],
+      },
+    });
+    assert.equal(parsed.words[0]?.kind, "wrong");
+    assert.equal(parsed.words[0]?.pronAccuracy, -1);
+    assert.equal(parsed.words[0]?.accuracy, null);
+    assert.equal(parsed.words[1]?.kind, "wrong");
+    assert.equal(parsed.words[2]?.kind, "match");
+    assert.equal(parsed.words[3]?.kind, "ignore");
+    assert.equal(parsed.words[4]?.kind, "extra");
+    const ignored = presentSentence("bus stop near zoo.", JSON.stringify({
+      result: {
+        PronAccuracy: 70,
+        Words: [
+          { Word: "bus", MatchTag: 0, PronAccuracy: -1 },
+          { Word: "stop", MatchTag: 0, PronAccuracy: 39 },
+          { Word: "near", MatchTag: 0, PronAccuracy: 40 },
+          { Word: "zoo", MatchTag: 4, PronAccuracy: 10 },
+        ],
+      },
+    }));
+    assert.equal(ignored.marks.find((mark) => mark.text === "bus")?.kind, "wrong");
+    assert.equal(ignored.marks.find((mark) => mark.text === "stop")?.kind, "wrong");
+    assert.equal(ignored.marks.find((mark) => mark.text === "zoo")?.kind, "match");
+    const view = presentSentence("The bus is near.", JSON.stringify({
+      judgment: {
+        words: [
+          { word: "The", kind: "uncertain", beginMs: 20, endMs: 80 },
+          { word: "bus", kind: "wrong", beginMs: 100, endMs: 200 },
+          { word: "is", kind: "miss" },
+          { word: "near", kind: "match" },
+        ],
+        extras: ["um"],
+      },
+    }));
+    assert.equal(view.marks.find((mark) => mark.text === "The")?.kind, "uncertain");
+    assert.equal(view.marks.find((mark) => mark.text === "bus")?.kind, "wrong");
+    assert.equal(view.marks.find((mark) => mark.text === "is")?.kind, "miss");
+    assert.equal(view.marks.find((mark) => mark.text === "near")?.kind, "match");
+    assert.deepEqual(view.uncertain, ["The"]);
+    assert.deepEqual(view.extras, ["um"]);
   });
 });
 
@@ -112,10 +169,15 @@ describe("buildSoeUrl", () => {
     process.env.TENCENT_SOE_APPID = "10001";
     const { url, signSource } = buildSoeUrl("They are cute?", 1_700_000_000);
     assert.match(signSource, /eval_mode=1/);
+    assert.match(signSource, /score_coeff=1\.5/);
     assert.match(signSource, /server_engine_type=16k_en/);
     assert.ok(signSource.includes("ref_text=They are cute?"));
     assert.equal(signSource.includes("%20"), false);
     assert.match(url, /ref_text=They%20are%20cute%3F/);
     assert.match(url, /signature=/);
+    const word = buildSoeUrl("bamboo", 1_700_000_000, 4);
+    assert.match(word.signSource, /eval_mode=4/);
+    assert.match(word.signSource, /ref_text=bamboo/);
+    assert.match(word.signSource, /score_coeff=1\.5/);
   });
 });

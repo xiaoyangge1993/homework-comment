@@ -6,7 +6,9 @@ export type ListenSentence = {
   fluency: number | null;
   completion: number | null;
   rhythm: RhythmLabel | null;
-  matchTags: number[];
+  missed: boolean;
+  wrong: boolean;
+  uncertain: boolean;
 };
 
 export type BoardGroup = "listen" | "pass" | "partial" | "returned" | "accepted";
@@ -31,7 +33,7 @@ export function sentenceNeedsListen(sentence: ListenSentence): boolean {
   if (sentence.accuracy == null || sentence.completion == null) return true;
   if (sentence.accuracy < limits.accuracyListenBelow) return true;
   if (sentence.completion < limits.completionListenBelow) return true;
-  if (sentence.matchTags.some((tag) => tag === 2 || tag === 3 || tag === 4)) return true;
+  if (sentence.missed || sentence.wrong || sentence.uncertain) return true;
   if (sentence.rhythm != null && sentence.rhythm !== "接近") return true;
   return false;
 }

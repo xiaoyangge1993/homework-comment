@@ -7,12 +7,16 @@ export function soeConfigured(): boolean {
   return Boolean(process.env.TENCENT_SECRET_ID && process.env.TENCENT_SECRET_KEY && process.env.TENCENT_SOE_APPID);
 }
 
-export function buildSoeUrl(refText: string, now = Math.floor(Date.now() / 1000)): { url: string; signSource: string } {
+export function buildSoeUrl(
+  refText: string,
+  now = Math.floor(Date.now() / 1000),
+  evalMode = 1,
+): { url: string; signSource: string } {
   const appId = process.env.TENCENT_SOE_APPID ?? "";
   const secretId = process.env.TENCENT_SECRET_ID ?? "";
   const secretKey = process.env.TENCENT_SECRET_KEY ?? "";
   const params: Record<string, string> = {
-    eval_mode: "1",
+    eval_mode: String(evalMode),
     expired: String(now + 24 * 60 * 60),
     nonce: String(randomInt(1, 1_000_000_000)),
     rec_mode: "1",

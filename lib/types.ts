@@ -13,7 +13,7 @@ export type SubmissionStatus = "partial" | "submitted" | "returned" | "accepted"
 export type RhythmLabel = "接近" | "偏快" | "偏慢" | "停顿偏长";
 export type TextMark = {
   text: string;
-  kind: "plain" | "match" | "miss" | "wrong" | "oov";
+  kind: "plain" | "match" | "miss" | "wrong" | "uncertain" | "oov";
   beginMs?: number | null;
   endMs?: number | null;
 };

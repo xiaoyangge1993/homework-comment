@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReviewSentence } from "@/lib/types";
+import { storedError } from "@/lib/soe-parse";
 import { MarkedSentence } from "./MarkedSentence";
 
 export function ReviewPanel({
@@ -159,6 +160,15 @@ function ReviewSentenceCard({
 }
 
 function ScoreLine({ attempt }: { attempt: NonNullable<ReviewSentence["attempt"]> }) {
+  if (attempt.accuracy == null && attempt.fluency == null && attempt.completion == null) {
+    const message = storedError(attempt.rawJson) ?? "待人工";
+    return (
+      <p className="score-line warn">
+        {message}
+        {attempt.rhythm ? ` · 节奏 ${attempt.rhythm}` : ""}
+      </p>
+    );
+  }
   return (
     <p className="score-line">
       准确度 {show(attempt.accuracy)} · 流利度 {show(attempt.fluency)} · 完整度 {show(attempt.completion)}

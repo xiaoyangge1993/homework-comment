@@ -9,14 +9,18 @@ export { EVALUATION_NOT_CONFIGURED, soeConfigured };
 
 type SoeCall = { scores: ParsedScores; raw: unknown };
 
-export function evaluateWav(refText: string, wav: Buffer): Promise<SoeCall> {
+export function evaluateWav(
+  refText: string,
+  wav: Buffer,
+  options?: { evalMode?: number; timeoutMs?: number },
+): Promise<SoeCall> {
   if (!soeConfigured()) {
     return Promise.resolve({
       scores: { ok: false, error: EVALUATION_NOT_CONFIGURED, accuracy: null, fluency: null, completion: null, words: [] },
       raw: { error: EVALUATION_NOT_CONFIGURED },
     });
   }
-  const { url } = buildSoeUrl(refText);
+  const { url } = buildSoeUrl(refText, Math.floor(Date.now() / 1000), options?.evalMode ?? 1);
   return new Promise((resolve) => {
     const ws = new WebSocket(url);
     let opened = false;
@@ -39,7 +43,7 @@ export function evaluateWav(refText: string, wav: Buffer): Promise<SoeCall> {
       if (!scores.ok && preset) scores.error = preset;
       resolve({ scores, raw: scores.ok ? raw : { error: scores.error ?? preset ?? "评测失败", result: raw } });
     };
-    const timer = setTimeout(() => finish({ error: "评测超时", result: latest }), 25000);
+    const timer = setTimeout(() => finish({ error: "评测超时", result: latest }), options?.timeoutMs ?? 25000);
     ws.on("error", () => finish({ error: "评测连接失败", result: latest }));
     ws.on("close", () => {
       if (!settled) finish(latest ?? { error: "评测连接已断开" });

@@ -5,9 +5,9 @@ export type DraftSentence = {
   index: number;
   accuracy: number | null;
   evaluated: boolean;
+  inaudible: boolean;
   missed: string[];
   wrong: { word: string; phone?: string }[];
-  unlisted: string[];
   rhythm: RhythmLabel | null;
 };
 
@@ -65,7 +65,7 @@ export function buildDraft(sentences: DraftSentence[]): string {
   };
   const clean =
     sentences.every((sentence) => sentence.evaluated && sentence.accuracy != null && sentence.accuracy >= limits.accuracyPassAt) &&
-    sentences.every((sentence) => sentence.missed.length === 0 && sentence.wrong.length === 0 && sentence.unlisted.length === 0) &&
+    sentences.every((sentence) => sentence.missed.length === 0 && sentence.wrong.length === 0) &&
     sentences.every((sentence) => sentence.rhythm !== "偏慢" && sentence.rhythm !== "停顿偏长");
   if (clean) return `${countLabel(sentences.length)}句都读全了，可以过。`;
 
@@ -87,12 +87,11 @@ export function buildDraft(sentences: DraftSentence[]): string {
         takeWords(sentences, (sentence) => sentence.wrong.map((item) => item.word), wordLimit),
         (index, words) => `第 ${index} 句 ${words.join("、")} 读得不准`,
       );
-      const unlisted = groupLine(takeWords(sentences, (sentence) => sentence.unlisted, wordLimit), (index, words) => {
-        return `第 ${index} 句 ${words.join("、")} 不在词库`;
-      });
       const pending = sentences
         .filter((sentence) => !sentence.evaluated)
-        .map((sentence) => `第 ${sentence.index} 句评测未完成，请老师亲听`);
+        .map((sentence) =>
+          sentence.inaudible ? `第 ${sentence.index} 句听不清，请老师亲听` : `第 ${sentence.index} 句评测未完成，请老师亲听`,
+        );
       const slow = sentences.some((sentence) => sentence.rhythm === "偏慢" || sentence.rhythm === "停顿偏长");
       const reread = sentences
         .filter(
@@ -100,13 +99,12 @@ export function buildDraft(sentences: DraftSentence[]): string {
             !sentence.evaluated ||
             sentence.missed.length > 0 ||
             sentence.wrong.length > 0 ||
-            sentence.unlisted.length > 0 ||
             sentence.rhythm === "偏慢" ||
             sentence.rhythm === "停顿偏长" ||
             (sentence.accuracy != null && sentence.accuracy < limits.accuracyPassAt),
         )
         .map((sentence) => sentence.index);
-      const parts = [...pending, ...missed, ...wrong, ...unlisted];
+      const parts = [...pending, ...missed, ...wrong];
       if (includePhone && phone && wrong.length > 0) parts[parts.indexOf(wrong[0])] = `${wrong[0]}（音素 ${phone}）`;
       if (slow) parts.push("跟读时停顿偏长，试着跟上老师的节奏再读一次");
       if (reread.length > 0) parts.push(`请再跟读${listIndexes(reread)}`);

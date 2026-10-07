@@ -3,14 +3,24 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import { audioRoot, resolveAudio } from "./audio";
+import { recognizeEnglish } from "./asr";
+import { INAUDIBLE_ERROR, limits } from "./config";
 import { getDb } from "./db";
 import { buildDraft, type DraftSentence } from "./draft";
 import { AppError } from "./errors";
 import { commandWorks, detectInternalPause, durationSeconds, transcodeWav } from "./media";
 import { extractWav, resolveVideo } from "./video";
-import { decodePcmWav, encodePcm16Wav } from "./wav";
+import { decodePcmWav, encodePcm16Wav, isInaudible, trimEdgeSilence } from "./wav";
 import { classifyRhythm } from "./rhythm";
-import { wordsOf } from "./soe-parse";
+import {
+  applyRecheck,
+  completionPercent,
+  contentRecheckIndexes,
+  isFunctionWord,
+  reconcileFunctionMisses,
+} from "./soe-judge";
+import { storedError, wordsOf, type ParsedWord } from "./soe-parse";
+import { englishTokens } from "./sentences";
 import { EVALUATION_NOT_CONFIGURED, evaluateWav, soeConfigured } from "./soe";
 import type { RhythmLabel, SubmissionStatus } from "./types";
 
@@ -23,6 +33,19 @@ type AttemptRow = {
   text_en: string;
   reference_audio_path: string | null;
 };
+
+type Prepared =
+  | { ok: true; bytes: Buffer }
+  | { ok: false; inaudible: true }
+  | { ok: false; error: string };
+
+type Evaluation = Awaited<ReturnType<typeof evaluateWav>>;
+
+function wordModeWords(checked: Evaluation): ParsedWord[] | null {
+  const error = checked.raw && typeof checked.raw === "object" ? (checked.raw as { error?: unknown }).error : null;
+  if (typeof error === "string" && error !== "评测结果无效") return null;
+  return checked.scores.words.length > 0 ? checked.scores.words : null;
+}
 
 export async function gradeAttempt(attemptId: number): Promise<void> {
   const db = await getDb();
@@ -45,48 +68,134 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
     await db.prepare("UPDATE sentence_attempt SET audio_path = ? WHERE id = ?").run(audioRelative, attemptId);
   }
 
-  const rhythm = audioRelative ? await measureRhythm(audioRelative, row.reference_audio_path) : null;
-  let raw: unknown = { error: EVALUATION_NOT_CONFIGURED };
-  let accuracy: number | null = null;
-  let fluency: number | null = null;
-  let completion: number | null = null;
-
   const studentFile = audioRelative ? resolveAudio(audioRelative) : null;
-  if (!soeConfigured()) {
-    raw = { error: EVALUATION_NOT_CONFIGURED };
-  } else if (!studentFile) {
-    raw = { error: row.video_path ? "音频转换失败" : "找不到录音" };
-  } else {
-    const direct = pcm16kWav(studentFile);
-    if (direct) {
-      const evaluated = await evaluateWav(row.text_en, direct);
-      raw = evaluated.raw;
-      if (evaluated.scores.ok) {
-        accuracy = evaluated.scores.accuracy;
-        fluency = evaluated.scores.fluency;
-        completion = evaluated.scores.completion;
-      }
-    } else if (!(await commandWorks("ffmpeg"))) {
-      raw = { error: "需要安装 ffmpeg 才能评测" };
-    } else {
-      const wavPath = path.join(audioRoot(), "wav", `${attemptId}.wav`);
-      fs.mkdirSync(path.dirname(wavPath), { recursive: true });
-      try {
-        await transcodeWav(studentFile, wavPath);
-        const evaluated = await evaluateWav(row.text_en, fs.readFileSync(wavPath));
-        raw = evaluated.raw;
-        if (evaluated.scores.ok) {
-          accuracy = evaluated.scores.accuracy;
-          fluency = evaluated.scores.fluency;
-          completion = evaluated.scores.completion;
-        }
-      } catch {
-        raw = { error: "音频转换失败" };
-      }
-    }
+  if (!studentFile) {
+    await writeGrade(
+      attemptId,
+      row.submission_id,
+      null,
+      { error: row.video_path ? "音频转换失败" : "找不到录音" },
+      null,
+      null,
+      null,
+    );
+    return;
   }
 
-  await writeGrade(attemptId, row.submission_id, rhythm, raw, accuracy, fluency, completion);
+  const prepared = await prepareScoringWav(attemptId, studentFile);
+  if (!prepared.ok) {
+    const raw = "error" in prepared ? { error: prepared.error } : { error: INAUDIBLE_ERROR };
+    await writeGrade(attemptId, row.submission_id, null, raw, null, null, null);
+    return;
+  }
+
+  const rhythm = await measureRhythm(`wav/${attemptId}.wav`, row.reference_audio_path);
+  if (!soeConfigured()) {
+    await writeGrade(attemptId, row.submission_id, rhythm, { error: EVALUATION_NOT_CONFIGURED }, null, null, null);
+    return;
+  }
+
+  const started = Date.now();
+  const remaining = () => Math.max(0, limits.gradeBudgetMs - (Date.now() - started));
+  const evaluated = await evaluateWav(row.text_en, prepared.bytes, { timeoutMs: Math.min(20_000, remaining()) });
+  const judged = await judgeSentence(row.text_en, prepared.bytes, evaluated, remaining);
+  await writeGrade(
+    attemptId,
+    row.submission_id,
+    rhythm,
+    judged.raw,
+    judged.accuracy,
+    judged.fluency,
+    judged.completion,
+  );
+}
+
+async function judgeSentence(text: string, wav: Buffer, evaluated: Evaluation, remaining: () => number) {
+  const scores = evaluated.scores;
+  if (!scores.ok) {
+    return {
+      raw: { sentence: evaluated.raw, error: scores.error ?? "评测失败" },
+      accuracy: null as number | null,
+      fluency: null as number | null,
+      completion: null as number | null,
+    };
+  }
+  const reference = scores.words.filter((word) => word.kind !== "extra");
+  const tokens = englishTokens(text);
+  const base = { sentence: evaluated.raw, asr: null as unknown, wordChecks: [] as { word: string; raw: unknown }[] };
+  if (reference.length !== tokens.length || tokens.length === 0) {
+    return { raw: base, accuracy: scores.accuracy, fluency: scores.fluency, completion: null };
+  }
+
+  let kinds = reference.map((word) => word.kind);
+  const aligned = () => reference.map((word, index) => ({ text: tokens[index] ?? word.word, kind: kinds[index] }));
+  if (aligned().some((token) => token.kind === "miss" && isFunctionWord(token.text)) && remaining() > 2000) {
+    const heard = await recognizeEnglish(wav, Math.min(8000, remaining()));
+    base.asr = heard.raw;
+    kinds = reconcileFunctionMisses(aligned(), { ran: true, text: heard.text });
+  }
+
+  for (const index of contentRecheckIndexes(aligned(), limits.wordRecheckLimit)) {
+    if (remaining() < 2000) break;
+    const word = tokens[index] ?? "";
+    if (!word) continue;
+    const checked = await evaluateWav(word, wav, { evalMode: 4, timeoutMs: Math.min(6000, remaining()) });
+    base.wordChecks.push({ word, raw: checked.raw });
+    kinds[index] = applyRecheck(kinds[index], wordModeWords(checked));
+  }
+
+  const missed = kinds.filter((kind) => kind === "miss").length;
+  return {
+    raw: {
+      ...base,
+      judgment: {
+        words: reference.map((word, index) => ({
+          word: tokens[index] ?? word.word,
+          kind: kinds[index],
+          beginMs: word.beginMs,
+          endMs: word.endMs,
+          phone: word.phones[0]?.phone,
+        })),
+        extras: scores.words.filter((word) => word.kind === "extra").map((word) => word.word),
+      },
+    },
+    accuracy: scores.accuracy,
+    fluency: scores.fluency,
+    completion: completionPercent(tokens.length, missed),
+  };
+}
+
+async function prepareScoringWav(attemptId: number, sourceFile: string): Promise<Prepared> {
+  const wavPath = path.join(audioRoot(), "wav", `${attemptId}.wav`);
+  fs.mkdirSync(path.dirname(wavPath), { recursive: true });
+  const decoded = await pcmOrTranscode(sourceFile, wavPath);
+  if (!decoded.ok) return decoded;
+  const trimmed = trimEdgeSilence(decoded.samples, decoded.sampleRate);
+  const bytes = Buffer.from(encodePcm16Wav(trimmed, 16000));
+  fs.writeFileSync(wavPath, bytes);
+  if (isInaudible(trimmed, 16000)) return { ok: false, inaudible: true };
+  return { ok: true, bytes };
+}
+
+async function pcmOrTranscode(
+  sourceFile: string,
+  wavPath: string,
+): Promise<{ ok: true; samples: Int16Array; sampleRate: number } | { ok: false; error: string }> {
+  const direct = pcm16kWav(sourceFile);
+  if (direct) {
+    const decoded = decodePcmWav(direct);
+    if (!decoded || decoded.sampleRate !== 16000) return { ok: false, error: "音频转换失败" };
+    return { ok: true, samples: decoded.samples, sampleRate: decoded.sampleRate };
+  }
+  if (!(await commandWorks("ffmpeg"))) return { ok: false, error: "需要安装 ffmpeg 才能评测" };
+  try {
+    await transcodeWav(sourceFile, wavPath);
+    const decoded = decodePcmWav(fs.readFileSync(wavPath));
+    if (!decoded || decoded.sampleRate !== 16000) return { ok: false, error: "音频转换失败" };
+    return { ok: true, samples: decoded.samples, sampleRate: decoded.sampleRate };
+  } catch {
+    return { ok: false, error: "音频转换失败" };
+  }
 }
 
 async function writeGrade(
@@ -151,6 +260,20 @@ async function measureRhythm(studentPath: string, referencePath: string | null):
   return classifyRhythm(studentDuration, teacherDuration, pause);
 }
 
+function completionFrom(text: string, words: ParsedWord[], accuracy: number | null): number | null | undefined {
+  if (accuracy == null) return undefined;
+  const tokens = englishTokens(text);
+  const aligned = words.filter((word) => word.kind !== "extra");
+  if (tokens.length === 0) return null;
+  if (aligned.length !== tokens.length) return undefined;
+  return completionPercent(tokens.length, aligned.filter((word) => word.kind === "miss").length);
+}
+
+function sameNumber(left: number | null, right: number | null): boolean {
+  if (left == null || right == null) return left === right;
+  return Math.round(left * 10) === Math.round(Number(right) * 10);
+}
+
 export async function syncDraft(submissionId: number) {
   const db = await getDb();
   const submission = (await db.prepare("SELECT assignment_id, status FROM submission WHERE id = ?").get(submissionId)) as
@@ -162,24 +285,30 @@ export async function syncDraft(submissionId: number) {
     | undefined;
   if (existing?.decision) return;
   const sentences = (await db
-    .prepare("SELECT id, idx FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
-    .all(submission.assignment_id)) as { id: number; idx: number }[];
+    .prepare("SELECT id, idx, text_en FROM sentence WHERE assignment_id = ? ORDER BY idx, id")
+    .all(submission.assignment_id)) as { id: number; idx: number; text_en: string }[];
   const draftSentences: DraftSentence[] = [];
   for (const sentence of sentences) {
     const attempt = (await db
       .prepare(
-        `SELECT accuracy, rhythm, raw_json FROM sentence_attempt
+        `SELECT id, accuracy, completion, rhythm, raw_json FROM sentence_attempt
          WHERE submission_id = ? AND sentence_id = ? ORDER BY id DESC LIMIT 1`,
       )
-      .get(submissionId, sentence.id)) as { accuracy: number | null; rhythm: RhythmLabel | null; raw_json: string | null } | undefined;
+      .get(submissionId, sentence.id)) as
+      | { id: number; accuracy: number | null; completion: number | null; rhythm: RhythmLabel | null; raw_json: string | null }
+      | undefined;
     const words = wordsOf(attempt?.raw_json ?? null);
+    const completion = completionFrom(sentence.text_en, words, attempt?.accuracy ?? null);
+    if (attempt && completion !== undefined && !sameNumber(completion, attempt.completion)) {
+      await db.prepare("UPDATE sentence_attempt SET completion = ? WHERE id = ?").run(completion, attempt.id);
+    }
     draftSentences.push({
       index: sentence.idx + 1,
       accuracy: attempt?.accuracy ?? null,
       evaluated: attempt?.accuracy != null,
-      missed: words.filter((word) => word.matchTag === 2).map((word) => word.word),
-      wrong: words.filter((word) => word.matchTag === 3).map((word) => ({ word: word.word, phone: word.phones[0]?.phone })),
-      unlisted: words.filter((word) => word.matchTag === 4).map((word) => word.word),
+      inaudible: storedError(attempt?.raw_json ?? null) === INAUDIBLE_ERROR,
+      missed: words.filter((word) => word.kind === "miss").map((word) => word.word),
+      wrong: words.filter((word) => word.kind === "wrong").map((word) => ({ word: word.word, phone: word.phones[0]?.phone })),
       rhythm: attempt?.rhythm ?? null,
     });
   }

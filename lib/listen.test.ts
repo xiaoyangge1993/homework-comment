@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { boardGroup, compareBoard, sentenceNeedsListen, type ListenSentence } from "./listen";
 
 function clean(): ListenSentence {
-  return { accuracy: 90, fluency: 90, completion: 100, rhythm: "接近", matchTags: [0] };
+  return { accuracy: 90, fluency: 90, completion: 100, rhythm: "接近", missed: false, wrong: false, uncertain: false };
 }
 
 describe("sentenceNeedsListen", () => {
@@ -11,9 +11,9 @@ describe("sentenceNeedsListen", () => {
     assert.equal(sentenceNeedsListen(clean()), false);
     assert.equal(sentenceNeedsListen({ ...clean(), accuracy: 79 }), true);
     assert.equal(sentenceNeedsListen({ ...clean(), completion: 89 }), true);
-    assert.equal(sentenceNeedsListen({ ...clean(), matchTags: [2] }), true);
-    assert.equal(sentenceNeedsListen({ ...clean(), matchTags: [3] }), true);
-    assert.equal(sentenceNeedsListen({ ...clean(), matchTags: [1] }), false);
+    assert.equal(sentenceNeedsListen({ ...clean(), missed: true }), true);
+    assert.equal(sentenceNeedsListen({ ...clean(), wrong: true }), true);
+    assert.equal(sentenceNeedsListen({ ...clean(), uncertain: true }), true);
     assert.equal(sentenceNeedsListen({ ...clean(), rhythm: "偏快" }), true);
     assert.equal(sentenceNeedsListen({ ...clean(), rhythm: null }), false);
     assert.equal(sentenceNeedsListen({ ...clean(), accuracy: null }), true);
@@ -23,7 +23,7 @@ describe("sentenceNeedsListen", () => {
 describe("boardGroup", () => {
   it("puts clean submitted work in the pass group and unfinished work aside", () => {
     assert.equal(boardGroup("submitted", [clean(), clean()]), "pass");
-    assert.equal(boardGroup("submitted", [clean(), { ...clean(), matchTags: [2] }]), "listen");
+    assert.equal(boardGroup("submitted", [clean(), { ...clean(), missed: true }]), "listen");
     assert.equal(boardGroup("partial", [clean()]), "partial");
     assert.equal(boardGroup("returned", [clean()]), "returned");
     assert.equal(boardGroup("accepted", [{ ...clean(), accuracy: 10 }]), "accepted");

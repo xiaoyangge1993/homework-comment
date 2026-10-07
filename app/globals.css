@@ -196,6 +196,14 @@ button.mark-jump {
 
 .mark-miss { text-decoration: underline; text-underline-offset: 4px; }
 .mark-wrong { color: var(--red); font-weight: 750; }
+.mark-uncertain {
+  background: #f3eee6;
+  text-decoration: underline dotted;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  border-radius: 3px;
+  padding: 0 2px;
+}
 .mark-oov { background: var(--warn-bg); }
 
 .pill {
@@ -331,6 +339,18 @@ th { color: var(--muted); font-weight: 650; font-size: 0.92rem; }
   background: #f3e6c8;
   text-decoration: underline;
   text-decoration-color: #92400e;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.grade-surface .mark-uncertain,
+.grade-surface button.mark-jump.mark-uncertain {
+  color: #57534e;
+  background: #f3eee6;
+  text-decoration: underline dotted;
+  text-decoration-color: #57534e;
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
   border-radius: 3px;
