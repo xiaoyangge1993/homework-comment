@@ -23,7 +23,7 @@ export default async function TeacherHomePage() {
   }
   return (
     <>
-      <div className="sentence-head">
+      <div className="sentence-head assignments-head">
         <h1>作业</h1>
         <a className="btn primary" href="/teacher/assignments/new">
           布置新作业

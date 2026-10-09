@@ -150,6 +150,10 @@ textarea { min-height: 96px; resize: vertical; }
   align-items: baseline;
 }
 
+.assignments-head {
+  margin-bottom: 16px;
+}
+
 .list-card { text-decoration: none; color: inherit; }
 .list-card strong { font-size: 1.08rem; }
 
@@ -455,6 +459,8 @@ th { color: var(--muted); font-weight: 650; font-size: 0.92rem; }
 
   .grade-surface table.board tr.is-listen { box-shadow: inset 3px 0 0 #9a3412; }
   .grade-surface table.board tr.is-pass { box-shadow: inset 3px 0 0 #166534; }
+  .grade-surface table.board tr.is-listen td:first-child,
+  .grade-surface table.board tr.is-pass td:first-child { box-shadow: none; }
 
   .grade-surface table.board td {
     display: block;
