@@ -89,6 +89,10 @@ export function emptyIntonation(): StoredIntonation {
   return { status: null, teacherFinal: null, studentFinal: null, agreement: null, json: null };
 }
 
+export function skippedIntonation(): StoredIntonation {
+  return { status: "skipped", teacherFinal: null, studentFinal: null, agreement: null, json: null };
+}
+
 export function failed(reason: string): StoredIntonation {
   return { status: "uncertain", teacherFinal: null, studentFinal: null, agreement: null, json: JSON.stringify({ reason }) };
 }

@@ -14,14 +14,12 @@ export function ReviewPanel({
   draftText,
   sentences,
   speechReady,
-  intonationEnabled,
 }: {
   assignmentId: number;
   submissionId: number;
   draftText: string;
   sentences: ReviewSentence[];
   speechReady: boolean;
-  intonationEnabled: boolean;
 }) {
   const router = useRouter();
   const [text, setText] = useState(draftText);
@@ -53,7 +51,6 @@ export function ReviewPanel({
 
   return (
     <div className="stack">
-      {intonationEnabled ? null : <p className="muted">语调未启用</p>}
       <label className="row">
         <input type="checkbox" checked={onlyProblems} onChange={(event) => setOnlyProblems(event.target.checked)} />
         只看要听的句子

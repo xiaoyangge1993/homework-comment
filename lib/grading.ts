@@ -102,7 +102,6 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
   }
 
   const rhythm = await measureRhythm(`wav/${attemptId}.wav`, row.reference_audio_path);
-  const intonation = await attachIntonation(`wav/${attemptId}.wav`, row.reference_audio_path);
   const started = Date.now();
   const remaining = () => Math.max(0, limits.gradeBudgetMs - (Date.now() - started));
   const heard =
@@ -110,6 +109,7 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
       ? { called: true, ...(await recognizeEnglish(prepared.bytes, Math.min(8000, remaining()))) }
       : { called: false, text: null as string | null, raw: null as unknown };
   if (!soeConfigured()) {
+    const intonation = await attachIntonation(`wav/${attemptId}.wav`, row.reference_audio_path);
     await writeGrade(
       attemptId,
       row.submission_id,
@@ -125,6 +125,7 @@ export async function gradeAttempt(attemptId: number): Promise<void> {
 
   const evaluated = await evaluateWav(lexiconText(row.text_en), prepared.bytes, { timeoutMs: Math.min(20_000, remaining()) });
   const judged = await judgeSentence(row.text_en, prepared.bytes, evaluated, heard, remaining);
+  const intonation = await attachIntonation(`wav/${attemptId}.wav`, row.reference_audio_path);
   await writeGrade(
     attemptId,
     row.submission_id,

@@ -8,6 +8,7 @@ import {
   intonationComment,
   intonationLabel,
   readIntonationOutput,
+  skippedIntonation,
 } from "./intonation";
 
 const exec = promisify(execFile);
@@ -50,6 +51,16 @@ describe("intonation labels", () => {
     assert.equal(parsed.status, "match");
     assert.equal(parsed.agreement, 1);
     assert.match(parsed.json ?? "", /teacherVoiced/);
+  });
+
+  it("records a missing per-sentence reference as skipped", () => {
+    assert.deepEqual(skippedIntonation(), {
+      status: "skipped",
+      teacherFinal: null,
+      studentFinal: null,
+      agreement: null,
+      json: null,
+    });
   });
 
   it("does not change who the teacher needs to listen to", () => {

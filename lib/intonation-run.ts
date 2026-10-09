@@ -1,39 +1,22 @@
 import "server-only";
 
-import { execFile } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { promisify } from "util";
 import { resolveAudio } from "./audio";
 import { openReferenceFile } from "./reference-file";
 import { commandWorks, transcodeWav } from "./media";
-import {
-  emptyIntonation,
-  failed,
-  readIntonationOutput,
-  type StoredIntonation,
-} from "./intonation";
+import { failed, skippedIntonation, type StoredIntonation } from "./intonation";
+import { compareIntonation, INTONATION_BUDGET_MS } from "./intonation-pitch";
 import { decodePcmWav } from "./wav";
 
-const exec = promisify(execFile);
-const TIMEOUT_MS = 15_000;
-
-let probe: Promise<boolean> | null = null;
-
-export function parselmouthAvailable(): Promise<boolean> {
-  if (!probe) probe = checkParselmouth();
-  return probe;
-}
+const TRANSCODE_MS = 15_000;
 
 export async function measureIntonation(
   studentRelative: string,
   referenceRelative: string | null,
 ): Promise<StoredIntonation> {
-  if (!referenceRelative) {
-    return { status: "skipped", teacherFinal: null, studentFinal: null, agreement: null, json: null };
-  }
-  if (!(await parselmouthAvailable())) return emptyIntonation();
+  if (!referenceRelative) return skippedIntonation();
   const studentFile = resolveAudio(studentRelative);
   const teacher = await openReferenceFile(referenceRelative);
   if (!studentFile || !teacher.absolute) {
@@ -45,39 +28,16 @@ export async function measureIntonation(
   try {
     const teacherWav = await ensureTeacherWav(teacher.absolute);
     temp = teacherWav.temp;
-    const { stdout } = await exec(python(), [scriptPath(), studentFile, teacherWav.path], {
-      timeout: TIMEOUT_MS,
-      maxBuffer: 1024 * 1024,
-      env: { ...process.env, PYTHONWARNINGS: "ignore" },
-    });
-    return readIntonationOutput(stdout);
+    const student = read16k(studentFile);
+    const reference = read16k(teacherWav.path);
+    if (!student || !reference) return failed("bad_wav");
+    return compareIntonation(student, reference, Date.now() + INTONATION_BUDGET_MS);
   } catch {
     return failed("failed");
   } finally {
     removeTemp(temp);
     teacher.close();
   }
-}
-
-async function checkParselmouth(): Promise<boolean> {
-  try {
-    const { stdout } = await exec(python(), [scriptPath(), "--check"], {
-      timeout: 8000,
-      env: { ...process.env, PYTHONWARNINGS: "ignore" },
-    });
-    const parsed = JSON.parse(stdout) as { available?: boolean };
-    return parsed.available === true;
-  } catch {
-    return false;
-  }
-}
-
-function python(): string {
-  return "python3";
-}
-
-function scriptPath(): string {
-  return path.join(process.cwd(), "scripts", "intonation.py");
 }
 
 async function ensureTeacherWav(file: string): Promise<{ path: string; temp: string | null }> {
@@ -87,17 +47,22 @@ async function ensureTeacherWav(file: string): Promise<{ path: string; temp: str
     os.tmpdir(),
     `homework-intonation-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.wav`,
   );
-  await transcodeWav(file, temp, TIMEOUT_MS);
+  await transcodeWav(file, temp, TRANSCODE_MS);
   return { path: temp, temp };
 }
 
-function isPcm16kMono(file: string): boolean {
+function read16k(file: string): Int16Array | null {
   try {
     const decoded = decodePcmWav(fs.readFileSync(file));
-    return Boolean(decoded && decoded.sampleRate === 16000 && decoded.channels === 1);
+    if (!decoded || decoded.sampleRate !== 16000 || decoded.channels !== 1) return null;
+    return decoded.samples;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function isPcm16kMono(file: string): boolean {
+  return read16k(file) != null;
 }
 
 function removeTemp(file: string | null) {
